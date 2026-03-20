@@ -42,32 +42,30 @@ function displayContent(id: string, content: string) {
 }
 
 /**
- * 判断是否为工具消息（仅含 tool_result，非用户输入）。
+ * 判断消息的展示类型。
  *
- * 优先看 role === 'tool'（新数据由采集器标记），
- * 兼容旧数据：role 为 "user" 但内容全部由 [Tool Result: ...] 段落组成。
- *
- * 判断策略：按空行分段，每段都以 [Tool Result: 开头即为工具消息。
+ * 返回:
+ *   'tool-result'  — 工具执行结果（折叠显示）
+ *   'tool-use'     — 工具调用摘要（单行标记）
+ *   'bubble'       — 正常对话气泡
  */
-function isToolMessage(role: string, content: string) {
-  if (role === 'tool') return true
-  if (role !== 'user') return false
+function messageType(role: string, content: string): 'tool-result' | 'tool-use' | 'bubble' {
   const trimmed = content.trim()
-  if (!trimmed.startsWith('[Tool Result:')) return false
-  // 按空行分段，每段都应该是 [Tool Result: 开头
-  const segments = trimmed.split(/\n\n+/).filter(s => s.trim())
-  return segments.every(s => s.trim().startsWith('[Tool Result:'))
-}
 
-/**
- * 判断是否为纯工具调用摘要（assistant 消息中仅包含 [Tool: xxx]，无其他文字）
- */
-function isToolUseMessage(role: string, content: string) {
-  if (role !== 'assistant') return false
-  const trimmed = content.trim()
-  // 每段都是 [Tool: xxx] 格式
-  const segments = trimmed.split(/\n\n+/).filter(s => s.trim())
-  return segments.length > 0 && segments.every(s => /^\[Tool:\s*\w+\]$/.test(s.trim()))
+  // ① 采集器标记的 tool 角色
+  if (role === 'tool') return 'tool-result'
+
+  // ② 旧数据兼容：role=user 但内容以 [Tool Result: 开头 → 工具返回值
+  if (role === 'user' && trimmed.startsWith('[Tool Result:')) return 'tool-result'
+
+  // ③ assistant 消息中仅有 [Tool: xxx] 标记（无实质文字）→ 工具调用摘要
+  if (role === 'assistant') {
+    // 去掉所有 [Tool: xxx] 后，如果剩余内容为空，则为纯工具调用
+    const withoutToolTags = trimmed.replace(/\[Tool:\s*\w+\]/g, '').trim()
+    if (trimmed.includes('[Tool:') && withoutToolTags === '') return 'tool-use'
+  }
+
+  return 'bubble'
 }
 
 /** 从 [Tool: Bash] 格式中提取工具名列表 */
@@ -75,19 +73,13 @@ function extractToolNames(content: string): string {
   const matches = content.match(/\[Tool:\s*(\w+)\]/g) || []
   return matches.map(m => m.replace(/\[Tool:\s*|\]/g, '')).join(', ') || '工具'
 }
+
 /**
- * 预处理内容文本，将 [Tool: xxx] 和 [Tool Result: ...] 标记转换为更友好的 Markdown 格式。
- * 在传给 MarkdownRenderer 之前调用。
+ * 预处理气泡内容，将 [Tool: xxx] 标记转换为友好的内联 Markdown 格式。
  */
 function preprocessContent(content: string): string {
   return content
-    // [Tool: Bash] → 内联代码标记
     .replace(/\[Tool:\s*(\w+)\]/g, '`🔧 $1`')
-    // [Tool Result: ...] → 折叠块引用
-    .replace(/\[Tool Result:\s*([\s\S]*?)(?:\](?=\s*(?:\[Tool|\n\n|$))|\]$)/g, (_match, body: string) => {
-      const preview = body.trim().split('\n').slice(0, 3).join('\n')
-      return `> 📎 工具返回：\n> \`\`\`\n> ${preview}\n> \`\`\``
-    })
 }
 </script>
 
@@ -98,11 +90,11 @@ function preprocessContent(content: string): string {
       :key="m.id"
     >
       <!-- ─── 工具结果消息：紧凑折叠样式 ─── -->
-      <div v-if="isToolMessage(m.role, m.rest)" class="flex justify-center">
+      <div v-if="messageType(m.role, m.rest) === 'tool-result'" class="flex justify-center">
         <details class="w-full max-w-[85%]">
           <summary
             class="cursor-pointer text-[11px] text-neutral-400 dark:text-neutral-500
-                   select-none flex items-center gap-1.5 py-1.5 px-3
+                   select-none flex items-center gap-1.5 py-1 px-3
                    hover:text-neutral-600 dark:hover:text-neutral-300 transition-colors"
           >
             <span class="i-lucide-terminal-square w-3 h-3 opacity-60" />
@@ -119,8 +111,8 @@ function preprocessContent(content: string): string {
       </div>
 
       <!-- ─── 工具调用摘要：单行紧凑样式 ─── -->
-      <div v-else-if="isToolUseMessage(m.role, m.rest)" class="flex justify-center">
-        <div class="flex items-center gap-1.5 py-1 px-3 text-[11px] text-neutral-400 dark:text-neutral-500">
+      <div v-else-if="messageType(m.role, m.rest) === 'tool-use'" class="flex justify-center">
+        <div class="flex items-center gap-1.5 py-0.5 px-3 text-[11px] text-neutral-400 dark:text-neutral-500">
           <span class="i-lucide-play w-3 h-3 opacity-50" />
           <span>调用 <span class="font-mono font-medium text-neutral-500 dark:text-neutral-400">{{ extractToolNames(m.rest) }}</span></span>
         </div>
