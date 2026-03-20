@@ -89,20 +89,22 @@ function preprocessContent(content: string): string {
       v-for="m in bubbles"
       :key="m.id"
     >
-      <!-- ─── 工具结果消息：紧凑折叠样式 ─── -->
-      <div v-if="messageType(m.role, m.rest) === 'tool-result'" class="flex justify-center">
-        <details class="w-full max-w-[85%]">
+      <!-- ─── 工具结果消息：跟随用户侧，折叠展示 ─── -->
+      <div v-if="messageType(m.role, m.rest) === 'tool-result'" class="flex gap-3">
+        <div class="w-7 shrink-0" />
+        <details class="max-w-[78%]">
           <summary
             class="cursor-pointer text-[11px] text-neutral-400 dark:text-neutral-500
-                   select-none flex items-center gap-1.5 py-1 px-3
-                   hover:text-neutral-600 dark:hover:text-neutral-300 transition-colors"
+                   select-none flex items-center gap-1 px-2.5 py-1 rounded-full
+                   bg-neutral-100 dark:bg-neutral-800/60 border border-neutral-200/50 dark:border-neutral-700/40
+                   hover:text-neutral-600 dark:hover:text-neutral-300 transition-colors w-fit"
           >
             <span class="i-lucide-terminal-square w-3 h-3 opacity-60" />
             <span>工具执行结果</span>
             <span class="i-lucide-chevron-right w-3 h-3 opacity-40 transition-transform details-open:rotate-90" />
           </summary>
           <pre
-            class="mt-1 text-[11px] whitespace-pre-wrap break-words leading-relaxed
+            class="mt-1.5 text-[11px] whitespace-pre-wrap break-words leading-relaxed
                    bg-neutral-50 dark:bg-neutral-900/50 border border-neutral-200/60 dark:border-neutral-700/50
                    rounded-lg px-3 py-2 text-neutral-500 dark:text-neutral-400 font-mono
                    max-h-48 overflow-y-auto"
@@ -110,9 +112,12 @@ function preprocessContent(content: string): string {
         </details>
       </div>
 
-      <!-- ─── 工具调用摘要：单行紧凑样式 ─── -->
-      <div v-else-if="messageType(m.role, m.rest) === 'tool-use'" class="flex justify-center">
-        <div class="flex items-center gap-1.5 py-0.5 px-3 text-[11px] text-neutral-400 dark:text-neutral-500">
+      <!-- ─── 工具调用摘要：跟随 AI 侧，紧凑标签样式 ─── -->
+      <div v-else-if="messageType(m.role, m.rest) === 'tool-use'" class="flex flex-row-reverse gap-3">
+        <div class="w-7 shrink-0" />
+        <div class="flex items-center gap-1 px-2.5 py-1 rounded-full
+                    bg-neutral-100 dark:bg-neutral-800/60 border border-neutral-200/50 dark:border-neutral-700/40
+                    text-[11px] text-neutral-400 dark:text-neutral-500">
           <span class="i-lucide-play w-3 h-3 opacity-50" />
           <span>调用 <span class="font-mono font-medium text-neutral-500 dark:text-neutral-400">{{ extractToolNames(m.rest) }}</span></span>
         </div>
