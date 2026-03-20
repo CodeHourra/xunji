@@ -48,8 +48,27 @@ pub struct SourceConfig {
 /// LLM 提炼配置 —— 控制 Sidecar 调用 LLM 的方式
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DistillerConfig {
-    /// LLM API 配置（为空时 Sidecar 将无法执行提炼）
+    /// 提炼模式: "api"（HTTP API）| "cli"（本地 CLI 工具）
+    /// 默认为 "api"
+    #[serde(default = "default_distiller_mode")]
+    pub mode: String,
+    /// API 模式配置（mode = "api" 时必填）
     pub api: Option<ApiConfig>,
+    /// CLI 模式配置（mode = "cli" 时必填）
+    pub cli: Option<CliConfig>,
+}
+
+/// 本地 CLI 工具配置（如 claude、gemini 等 AI 编程助手 CLI）
+///
+/// CLI 工具通过 stdin 接收提示词，从 stdout 输出响应，
+/// 命令行参数与各工具官方用法保持一致（-p 非交互模式）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CliConfig {
+    /// CLI 命令名称，可自定义（如 "claude"、"claude3"、"gemini"、"codex"）
+    pub command: String,
+    /// 附加参数列表，追加在 -p prompt 之前（如 ["--no-history"]）
+    #[serde(default)]
+    pub extra_args: Vec<String>,
 }
 
 /// LLM API 连接配置（兼容 OpenAI-compatible API）
@@ -88,6 +107,10 @@ fn default_true() -> bool {
 
 fn default_timeout() -> u64 {
     120
+}
+
+fn default_distiller_mode() -> String {
+    "api".to_string()
 }
 
 fn default_sync_mode() -> String {
@@ -132,7 +155,11 @@ impl Default for AppConfig {
                     },
                 ],
             },
-            distiller: DistillerConfig { api: None },
+            distiller: DistillerConfig {
+                mode: default_distiller_mode(),
+                api: None,
+                cli: None,
+            },
             sync: SyncConfig::default(),
         }
     }
@@ -218,28 +245,41 @@ impl AppConfig {
     }
 
     /// 构造 Sidecar `init` 方法的 JSON-RPC params（与 TS `handleInit` 字段一致）
+    ///
+    /// 根据 `distiller.mode` 自动选择 API 或 CLI 参数：
+    /// - "api" → 包含 provider / base_url / api_key / model
+    /// - "cli" → 包含 command / extra_args
     pub fn sidecar_init_params(&self) -> Result<Value, String> {
-        let api = self
-            .distiller
-            .api
-            .as_ref()
-            .ok_or_else(|| {
-                "未配置 distiller.api：请在 ~/.xunji/config.toml 中填写 LLM API（api_key、model 等）"
-                    .to_string()
-            })?;
-
-        let base_url = api
-            .base_url
-            .clone()
-            .unwrap_or_else(|| "https://api.openai.com/v1".to_string());
-
-        Ok(serde_json::json!({
-            "provider": api.provider,
-            "base_url": base_url,
-            "api_key": api.api_key,
-            "model": api.model,
-            "timeout_secs": api.timeout_secs,
-        }))
+        match self.distiller.mode.as_str() {
+            "cli" => {
+                let cli = self.distiller.cli.as_ref().ok_or_else(|| {
+                    "未配置 distiller.cli：请在设置中填写 CLI 命令名称（如 claude）".to_string()
+                })?;
+                Ok(serde_json::json!({
+                    "mode": "cli",
+                    "command": cli.command,
+                    "extra_args": cli.extra_args,
+                }))
+            }
+            _ => {
+                // 默认 API 模式
+                let api = self.distiller.api.as_ref().ok_or_else(|| {
+                    "未配置 distiller.api：请在设置中填写 LLM API（api_key、model 等）".to_string()
+                })?;
+                let base_url = api
+                    .base_url
+                    .clone()
+                    .unwrap_or_else(|| "https://api.openai.com/v1".to_string());
+                Ok(serde_json::json!({
+                    "mode": "api",
+                    "provider": api.provider,
+                    "base_url": base_url,
+                    "api_key": api.api_key,
+                    "model": api.model,
+                    "timeout_secs": api.timeout_secs,
+                }))
+            }
+        }
     }
 }
 

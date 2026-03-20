@@ -83,6 +83,9 @@ pub struct SessionSummary {
     /// 该会话下最新一张知识卡片的 ID（无卡片时为 null，供列表「查看笔记」跳转）
     #[serde(default)]
     pub card_id: Option<String>,
+    /// 所有消息内容字节总量（SUM(LENGTH(content))），供列表显示 xx KB
+    #[serde(default)]
+    pub raw_size_bytes: i64,
 }
 
 // ─────────────────────────────── 消息 ─────────────────────────────────

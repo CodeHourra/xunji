@@ -22,14 +22,19 @@ fn session_summary_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Session
         has_updates: row.get::<_, i64>(10)? != 0,
         created_at: row.get(11)?,
         card_id: row.get(12)?,
+        // 消息内容字节总量（SUM(LENGTH(content))），用于列表展示 xx KB
+        raw_size_bytes: row.get::<_, i64>(13).unwrap_or(0),
     })
 }
 
-/// 列表查询列：须与 `session_summary_from_row` 下标一致；`card_id` 为相关子查询。
+/// 列表查询列：须与 `session_summary_from_row` 下标一致。
+/// - 列 12: card_id 子查询（最新卡片 ID）
+/// - 列 13: raw_size_bytes 子查询（消息内容字节总量）
 const SESSION_SUMMARY_COLUMNS: &str = "\
     s.id, s.source_id, s.session_id, s.source_host, s.project_path, s.project_name, \
     s.message_count, s.status, s.value, s.updated_at, s.has_updates, s.created_at, \
-    (SELECT c.id FROM cards c WHERE c.session_id = s.id ORDER BY c.created_at DESC LIMIT 1)";
+    (SELECT c.id FROM cards c WHERE c.session_id = s.id ORDER BY c.created_at DESC LIMIT 1), \
+    (SELECT COALESCE(SUM(LENGTH(m.content)), 0) FROM messages m WHERE m.session_id = s.id)";
 
 impl Database {
     /// 导入会话。使用 INSERT OR IGNORE 实现去重（唯一键: session_id + source_host）。

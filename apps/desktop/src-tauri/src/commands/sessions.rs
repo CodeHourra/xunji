@@ -119,10 +119,11 @@ pub async fn distill_session(
         .ok_or_else(|| "未找到 xunji-sidecar 可执行文件，请先构建 packages/sidecar 或安装到 ~/.xunji/bin/".to_string())?;
 
     let db = state.db.clone();
-    let config = state.config.clone();
+    // 取当前配置快照（RwLock → Clone），传入 spawn_blocking
+    let config = state.config_snapshot();
 
     tokio::task::spawn_blocking(move || {
-        run_distill_pipeline(&db, config.as_ref(), sidecar.as_ref(), &session_id)
+        run_distill_pipeline(&db, &config, sidecar.as_ref(), &session_id)
     })
     .await
     .map_err(|e| format!("distill_session join 失败: {}", e))?

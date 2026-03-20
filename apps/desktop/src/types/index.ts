@@ -31,6 +31,8 @@ export interface SessionSummary {
   hasUpdates: boolean
   createdAt: string
   cardId?: string | null
+  /** 所有消息内容字节总量（SUM(LENGTH(content))），用于展示 xx KB */
+  rawSizeBytes: number
 }
 
 export interface Session {
@@ -140,4 +142,55 @@ export interface ListCardsParams {
   value?: string | null
   page?: number
   pageSize?: number
+}
+
+// ─── 配置相关类型（与 Rust AppConfigDto 对应） ───────────────────────────────
+
+export interface AppConfigDto {
+  distiller: DistillerConfigDto
+  collector: CollectorConfigDto
+  sync: SyncConfigDto
+}
+
+export interface DistillerConfigDto {
+  /** 提炼模式: "api" | "cli" */
+  mode: string
+  api: ApiConfigDto | null
+  cli: CliConfigDto | null
+}
+
+export interface ApiConfigDto {
+  /** 提供商标识（如 "openai"、"deepseek"、"openai-compatible"） */
+  provider: string
+  /** API Base URL（可选） */
+  baseUrl: string | null
+  /** API 密钥 */
+  apiKey: string
+  /** 模型名称 */
+  model: string
+  /** 请求超时（秒） */
+  timeoutSecs: number
+}
+
+export interface CliConfigDto {
+  /** CLI 命令名（如 "claude"、"gemini"） */
+  command: string
+  /** 附加参数 */
+  extraArgs: string[]
+}
+
+export interface CollectorConfigDto {
+  sources: SourceConfigDto[]
+}
+
+export interface SourceConfigDto {
+  id: string
+  name: string
+  enabled: boolean
+  scanDirs: string[]
+}
+
+export interface SyncConfigDto {
+  mode: string
+  intervalSecs: number
 }

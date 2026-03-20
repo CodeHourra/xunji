@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { NSpin, NEmpty, NButton } from 'naive-ui'
+import { NSpin, NEmpty, NButton, NCheckbox, NProgress } from 'naive-ui'
 import SessionToolbar from '../components/SessionToolbar.vue'
 import SessionCard from '../components/SessionCard.vue'
 import Pagination from '../components/Pagination.vue'
@@ -12,24 +12,84 @@ import { api } from '../lib/tauri'
 const sessions = useSessionsStore()
 const router = useRouter()
 const search = useSearchStore()
-const analyzing = ref<string | null>(null)
-const toast = ref<string | null>(null)
+
+// ── 单条分析状态 ─────────────────────────────────────────────────────────────
+
+/** 当前单条正在分析的会话 ID（单条模式） */
+const singleAnalyzing = ref<string | null>(null)
+
+// ── 批量分析状态 ─────────────────────────────────────────────────────────────
+
+/** 是否处于批量选择模式 */
+const batchMode = ref(false)
+/** 已选中的会话 ID Set */
+const selectedIds = ref<Set<string>>(new Set())
+/** 批量分析总数 */
+const batchTotal = ref(0)
+/** 批量分析已完成数（含失败） */
+const batchDone = ref(0)
+/** 批量分析是否进行中 */
+const batchRunning = ref(false)
+
+// ── Toast ────────────────────────────────────────────────────────────────────
+
+const toast = ref<{ msg: string; type: 'success' | 'error' } | null>(null)
+
+function showToast(msg: string, type: 'success' | 'error' = 'success') {
+  toast.value = { msg, type }
+  setTimeout(() => { toast.value = null }, 4000)
+}
+
+// ── 生命周期 ─────────────────────────────────────────────────────────────────
 
 onMounted(() => {
   void sessions.loadPage()
 })
 
-function showToast(msg: string) {
-  toast.value = msg
-  setTimeout(() => { toast.value = null }, 4000)
-}
+// ── 计算属性 ─────────────────────────────────────────────────────────────────
 
+/** 当前页中未分析（无卡片）的会话数量 */
+const unanalyzedCount = computed(
+  () => sessions.items.filter((s) => !s.cardId && s.status !== 'analyzing').length,
+)
+
+/** 当前页可选（未分析）的会话列表 */
+const selectableItems = computed(() =>
+  sessions.items.filter((s) => !s.cardId && s.status !== 'analyzing'),
+)
+
+/** 是否全选（基于可选列表） */
+const allSelected = computed(
+  () =>
+    selectableItems.value.length > 0 &&
+    selectableItems.value.every((s) => selectedIds.value.has(s.id)),
+)
+
+/** 是否半选（基于可选列表） */
+const indeterminate = computed(
+  () => selectedIds.value.size > 0 && !allSelected.value,
+)
+
+const batchProgress = computed(() =>
+  batchTotal.value > 0 ? Math.round((batchDone.value / batchTotal.value) * 100) : 0,
+)
+
+// ── 方法 ─────────────────────────────────────────────────────────────────────
+
+/** 单条分析（从 SessionCard 触发）*/
 async function onAnalyze(sessionId: string) {
-  analyzing.value = sessionId
+  singleAnalyzing.value = sessionId
+  // 立即更新状态为 analyzing（乐观更新，提升体感）
+  sessions.patchItem(sessionId, { status: 'analyzing' })
   try {
     const card = await api.distillSession(sessionId)
+    // 分析完成：原地更新状态，无需整页刷新
+    sessions.patchItem(sessionId, {
+      status: 'analyzed',
+      value: card.value ?? null,
+      cardId: card.id,
+    })
     showToast(`笔记已生成：${card.title}`)
-    await sessions.loadPage()
     void router.push({
       name: 'session-detail',
       params: { sessionId },
@@ -37,10 +97,91 @@ async function onAnalyze(sessionId: string) {
     })
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
-    showToast(msg)
-    await sessions.loadPage()
+    sessions.patchItem(sessionId, { status: 'error' })
+    showToast(msg, 'error')
   } finally {
-    analyzing.value = null
+    singleAnalyzing.value = null
+  }
+}
+
+/** 切换批量选择模式 */
+function toggleBatchMode() {
+  batchMode.value = !batchMode.value
+  if (!batchMode.value) {
+    selectedIds.value = new Set()
+  }
+}
+
+/** 全选 / 取消全选（仅选未分析的会话） */
+function toggleSelectAll(checked: boolean) {
+  if (checked) {
+    // 只选当前页未分析的会话（无卡片且非 analyzing 状态）
+    selectedIds.value = new Set(
+      sessions.items
+        .filter((s) => !s.cardId && s.status !== 'analyzing')
+        .map((s) => s.id),
+    )
+  } else {
+    selectedIds.value = new Set()
+  }
+}
+
+/**
+ * 单条选中状态变更（SessionCard emit）。
+ * 每次创建新 Set 实例，确保 Vue 3 响应式正确触发。
+ */
+function onSelectionChange(id: string, checked: boolean) {
+  const next = new Set(selectedIds.value)
+  if (checked) {
+    next.add(id)
+  } else {
+    next.delete(id)
+  }
+  selectedIds.value = next
+}
+
+/**
+ * 批量分析已选会话（顺序执行，避免 API 过载）
+ * 每条完成后原地更新对应卡片状态
+ */
+async function startBatchAnalyze() {
+  const ids = [...selectedIds.value]
+  if (!ids.length) return
+
+  batchRunning.value = true
+  batchTotal.value = ids.length
+  batchDone.value = 0
+  let successCount = 0
+  let failCount = 0
+
+  // 标记所有选中为 analyzing（乐观 UI）
+  ids.forEach((id) => sessions.patchItem(id, { status: 'analyzing' }))
+
+  for (const id of ids) {
+    try {
+      const card = await api.distillSession(id)
+      sessions.patchItem(id, {
+        status: 'analyzed',
+        value: card.value ?? null,
+        cardId: card.id,
+      })
+      successCount++
+    } catch {
+      sessions.patchItem(id, { status: 'error' })
+      failCount++
+    } finally {
+      batchDone.value++
+    }
+  }
+
+  batchRunning.value = false
+  selectedIds.value = new Set()
+  batchMode.value = false
+
+  if (failCount === 0) {
+    showToast(`批量分析完成，共生成 ${successCount} 篇笔记`)
+  } else {
+    showToast(`分析完成：成功 ${successCount}，失败 ${failCount}`, failCount > 0 ? 'error' : 'success')
   }
 }
 
@@ -54,7 +195,6 @@ function openSearchHit(cardId: string, sessionId: string) {
 </script>
 
 <template>
-  <!-- 整体用 flex-col + h-full 撑满父容器，列表区域自动填充并内部滚动 -->
   <div class="flex flex-col h-full px-5 pt-5 max-w-5xl mx-auto w-full">
     <SessionToolbar />
 
@@ -69,10 +209,16 @@ function openSearchHit(cardId: string, sessionId: string) {
     >
       <div
         v-if="toast"
-        class="fixed top-4 left-1/2 -translate-x-1/2 z-50 rounded-lg border border-brand-200 bg-brand-50 dark:bg-brand-950/80 dark:border-brand-800 px-3 py-2 shadow-lg flex items-center gap-2 text-sm text-brand-800 dark:text-brand-200"
+        class="fixed top-4 left-1/2 -translate-x-1/2 z-50 rounded-lg border px-3 py-2 shadow-lg flex items-center gap-2 text-sm"
+        :class="toast.type === 'error'
+          ? 'border-red-200 bg-red-50 dark:bg-red-950/80 dark:border-red-800 text-red-800 dark:text-red-200'
+          : 'border-brand-200 bg-brand-50 dark:bg-brand-950/80 dark:border-brand-800 text-brand-800 dark:text-brand-200'"
       >
-        <span class="i-lucide-check-circle w-4 h-4 text-brand-500" />
-        {{ toast }}
+        <span
+          :class="toast.type === 'error' ? 'i-lucide-x-circle text-red-500' : 'i-lucide-check-circle text-brand-500'"
+          class="w-4 h-4"
+        />
+        {{ toast.msg }}
       </div>
     </Transition>
 
@@ -116,14 +262,97 @@ function openSearchHit(cardId: string, sessionId: string) {
       </div>
 
       <template v-else>
+        <!-- 批量操作工具栏 -->
+        <div class="flex items-center justify-between mb-2 min-h-8">
+          <!-- 左侧：全选 + 已选提示 -->
+          <div class="flex items-center gap-3">
+            <template v-if="batchMode">
+              <n-checkbox
+                :checked="allSelected"
+                :indeterminate="indeterminate"
+                @update:checked="toggleSelectAll"
+              >
+                <span class="text-xs text-neutral-600 dark:text-neutral-400">全选</span>
+              </n-checkbox>
+              <span v-if="selectedIds.size > 0" class="text-xs text-brand-600 dark:text-brand-400 font-medium">
+                已选 {{ selectedIds.size }} 条
+              </span>
+            </template>
+          </div>
+
+          <!-- 右侧：批量分析控制按钮 -->
+          <div class="flex items-center gap-2">
+            <template v-if="!batchMode">
+              <!-- 非批量模式：显示「批量分析」入口（仅当有未分析会话时） -->
+              <n-button
+                v-if="unanalyzedCount > 0"
+                size="tiny"
+                :disabled="batchRunning"
+                @click="toggleBatchMode"
+              >
+                <span class="inline-flex items-center gap-1">
+                  <span class="i-lucide-layers w-3 h-3" />
+                  批量分析（{{ unanalyzedCount }}）
+                </span>
+              </n-button>
+            </template>
+
+            <template v-else>
+              <!-- 批量模式：开始分析 + 取消 -->
+              <n-button
+                size="tiny"
+                type="primary"
+                :loading="batchRunning"
+                :disabled="selectedIds.size === 0 || batchRunning"
+                @click="startBatchAnalyze"
+              >
+                <span class="inline-flex items-center gap-1">
+                  <span v-if="!batchRunning" class="i-lucide-sparkles w-3 h-3" />
+                  {{ batchRunning ? `分析中 ${batchDone}/${batchTotal}` : `开始分析（${selectedIds.size}）` }}
+                </span>
+              </n-button>
+              <n-button size="tiny" :disabled="batchRunning" @click="toggleBatchMode">
+                取消
+              </n-button>
+            </template>
+          </div>
+        </div>
+
+        <!-- 批量进度条 -->
+        <Transition
+          enter-active-class="transition duration-200 ease-out"
+          enter-from-class="opacity-0 -translate-y-1"
+          enter-to-class="opacity-100 translate-y-0"
+          leave-active-class="transition duration-150 ease-in"
+          leave-from-class="opacity-100 translate-y-0"
+          leave-to-class="opacity-0 -translate-y-1"
+        >
+          <div v-if="batchRunning" class="mb-2">
+            <n-progress
+              type="line"
+              :percentage="batchProgress"
+              :show-indicator="false"
+              :height="4"
+              border-radius="2px"
+              :color="'var(--brand-500, #6366f1)'"
+            />
+            <p class="text-xs text-neutral-400 mt-1">
+              正在分析第 {{ batchDone + 1 }} / {{ batchTotal }} 条…
+            </p>
+          </div>
+        </Transition>
+
         <!-- 可滚动列表区域 -->
         <div class="flex-1 min-h-0 overflow-y-auto space-y-2 pb-2">
           <SessionCard
             v-for="s in sessions.items"
             :key="s.id"
             :session="s"
-            :analyzing="analyzing === s.id"
+            :analyzing="singleAnalyzing === s.id"
+            :selectable="batchMode"
+            :selected="selectedIds.has(s.id)"
             @analyze="onAnalyze"
+            @update:selected="onSelectionChange"
           />
         </div>
 

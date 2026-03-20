@@ -14,6 +14,11 @@ const props = defineProps<{
   selected?: boolean
 }>()
 
+/** 批量模式下：已分析的会话不可选 */
+const isSelectDisabled = computed(
+  () => props.selectable && (!!props.session.cardId || props.session.status === 'analyzing'),
+)
+
 const emit = defineEmits<{
   analyze: [id: string]
   'update:selected': [id: string, checked: boolean]
@@ -43,9 +48,10 @@ function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(2)} MB`
 }
 
-/** 点击卡片整行 → 批量模式切换选中，否则跳转详情 */
+/** 点击卡片整行 → 批量模式切换选中（已分析不可选），否则跳转详情 */
 function openSession() {
   if (props.selectable) {
+    if (isSelectDisabled.value) return
     emit('update:selected', props.session.id, !props.selected)
     return
   }
@@ -107,7 +113,11 @@ const actionLoading = computed(
     class="group relative rounded-lg border bg-white dark:bg-neutral-900
            transition-all duration-150"
     :class="[
-      selectable ? 'cursor-pointer' : 'cursor-pointer hover:shadow-sm',
+      isSelectDisabled
+        ? 'cursor-default opacity-60'
+        : selectable
+          ? 'cursor-pointer hover:shadow-sm'
+          : 'cursor-pointer hover:shadow-sm',
       selected
         ? 'border-brand-400 dark:border-brand-600 bg-brand-50/40 dark:bg-brand-950/30'
         : session.cardId
@@ -124,11 +134,12 @@ const actionLoading = computed(
     />
 
     <div class="flex items-center gap-3 px-4 py-3">
-      <!-- 批量模式：checkbox -->
+      <!-- 批量模式：checkbox（已分析会话显示禁用） -->
       <div v-if="selectable" class="shrink-0" @click.stop>
         <n-checkbox
           :checked="selected"
-          @update:checked="emit('update:selected', session.id, $event)"
+          :disabled="isSelectDisabled"
+          @update:checked="!isSelectDisabled && emit('update:selected', session.id, $event)"
         />
       </div>
 

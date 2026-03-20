@@ -65,6 +65,17 @@ export const useSessionsStore = defineStore('sessions', () => {
     void loadPage()
   }
 
+  /**
+   * 分析完成后原地更新单条会话（避免整页刷新），
+   * 将 status / value / cardId 写回 items 列表对应行。
+   */
+  function patchItem(id: string, patch: Partial<SessionSummary>) {
+    const idx = items.value.findIndex((s) => s.id === id)
+    if (idx >= 0) {
+      items.value[idx] = { ...items.value[idx], ...patch }
+    }
+  }
+
   return {
     items,
     total,
@@ -77,5 +88,6 @@ export const useSessionsStore = defineStore('sessions', () => {
     syncAll,
     setPage,
     setPageSize,
+    patchItem,
   }
 })

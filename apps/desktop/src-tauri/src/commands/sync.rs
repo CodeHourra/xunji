@@ -10,10 +10,11 @@ use crate::AppState;
 #[tauri::command]
 pub async fn sync_all(state: State<'_, AppState>) -> Result<SyncResult, String> {
     let db = state.db.clone();
-    let config = state.config.clone();
+    // 取当前配置快照，传入 spawn_blocking（RwLock → Clone）
+    let config = state.config_snapshot();
 
     tokio::task::spawn_blocking(move || {
-        let scheduler = CollectorScheduler::new(config.as_ref(), db.as_ref());
+        let scheduler = CollectorScheduler::new(&config, db.as_ref());
         scheduler.collect_all()
     })
     .await

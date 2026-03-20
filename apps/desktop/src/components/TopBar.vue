@@ -1,14 +1,18 @@
 <script setup lang="ts">
+import { ref } from 'vue'
 import { NTabs, NTabPane, NTooltip, NButton, NDivider } from 'naive-ui'
 import { useRouter } from 'vue-router'
 import { useUiStore } from '../stores/ui'
 import { useSessionsStore } from '../stores/sessions'
 import { useSidebarStore } from '../stores/sidebar'
+import SettingsModal from './SettingsModal.vue'
 
 const ui = useUiStore()
 const sessions = useSessionsStore()
 const sidebar = useSidebarStore()
 const router = useRouter()
+
+const showSettings = ref(false)
 
 function onTabChange(tab: string) {
   ui.activeTab = tab as 'sessions' | 'library'
@@ -87,7 +91,7 @@ async function onSync() {
 
       <n-tooltip trigger="hover" :delay="400">
         <template #trigger>
-          <n-button quaternary circle size="small">
+          <n-button quaternary circle size="small" @click="showSettings = true">
             <span class="i-lucide-settings w-4 h-4" />
           </n-button>
         </template>
@@ -104,4 +108,6 @@ async function onSync() {
       </n-tooltip>
     </div>
   </header>
+
+  <settings-modal v-model:show="showSettings" />
 </template>

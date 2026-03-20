@@ -75,47 +75,56 @@ function preprocess(content: string): string {
 
 /**
  * 从 LLM 响应文本中提取 JSON。
- * 处理可能的 markdown 代码块包裹（```json ... ```）
- * 以及 LLM 常见的 JSON 格式问题。
+ *
+ * 兼容 LLM 常见的输出格式问题：
+ * 1. markdown 代码块包裹（```json / ```bash / ```text / ``` 等任意语言标记）
+ * 2. JSON 前后有多余文字
+ * 3. 字符串值内含未转义的换行符
+ * 4. 控制字符污染
+ *
+ * @param text - LLM 返回的原始响应文本
  */
 function extractJson(text: string): unknown {
+  const rawPreview = text.slice(0, 300).replace(/\n/g, '↵')
+  console.error(`[distiller] extractJson 原始响应（前300字符）: ${rawPreview}`)
+
   let cleaned = text.trim()
 
-  // 移除可能的 markdown 代码块
-  const jsonBlockMatch = cleaned.match(/```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/)
-  if (jsonBlockMatch) {
-    cleaned = jsonBlockMatch[1].trim()
+  // 策略 0：移除 markdown 代码块
+  // 匹配任意语言标记（json / bash / text / 空等），修复原来只匹配 json 导致 ```bash 漏处理
+  const codeBlockMatch = cleaned.match(/^```[a-zA-Z0-9_-]*\s*\n?([\s\S]*?)\n?\s*```\s*$/)
+  if (codeBlockMatch) {
+    cleaned = codeBlockMatch[1].trim()
+    console.error(`[distiller] 已剥离代码块，清理后前200字符: ${cleaned.slice(0, 200).replace(/\n/g, '↵')}`)
   }
 
-  // 第一次尝试：直接解析
+  // 策略 1：直接解析（最理想情况）
   try {
     return JSON.parse(cleaned)
-  } catch {
-    // 继续尝试修复
+  } catch (e1) {
+    console.error(`[distiller] 策略1（直接解析）失败: ${(e1 as Error).message}`)
   }
 
-  // 修复策略 1：提取最外层 { ... }（LLM 可能在 JSON 前后附加了文字）
+  // 策略 2：提取最外层 { ... }（LLM 在 JSON 前后附加了解释文字）
   const braceMatch = cleaned.match(/\{[\s\S]*\}/)
   if (braceMatch) {
     try {
       return JSON.parse(braceMatch[0])
-    } catch {
-      // 继续
+    } catch (e2) {
+      console.error(`[distiller] 策略2（提取 {} 块）失败: ${(e2 as Error).message}`)
     }
   }
 
-  // 修复策略 2：处理 note 字段中未转义的换行符和特殊字符
-  // LLM 有时在 JSON 字符串值内直接写入换行（非 \n 转义），导致 JSON 不合法
+  // 策略 3：处理 note/summary 等字段中未转义的换行符和特殊字符
   const fixedNewlines = (braceMatch?.[0] ?? cleaned).replace(
-    /("(?:note|summary|reason|value_reason)":\s*")([\s\S]*?)("(?:\s*[,}]))/g,
+    /("(?:note|summary|reason|value_reason|title)":\s*")([\s\S]*?)("(?:\s*[,}]))/g,
     (_match, prefix: string, value: string, suffix: string) => {
       const escaped = value
-        .replace(/\\/g, '\\\\')   // 反斜杠
-        .replace(/\n/g, '\\n')    // 换行
-        .replace(/\r/g, '\\r')    // 回车
-        .replace(/\t/g, '\\t')    // 制表符
-        .replace(/"/g, '\\"')     // 引号（先解决双重转义：还原已转义的）
-      // 还原过度转义（如原本 LLM 就写了 \\n，上面会变成 \\\\n）
+        .replace(/\\/g, '\\\\')
+        .replace(/\n/g, '\\n')
+        .replace(/\r/g, '\\r')
+        .replace(/\t/g, '\\t')
+        .replace(/"/g, '\\"')
       const deduped = escaped
         .replace(/\\\\\\\\n/g, '\\\\n')
         .replace(/\\\\\\\\"/g, '\\\\"')
@@ -125,22 +134,24 @@ function extractJson(text: string): unknown {
 
   try {
     return JSON.parse(fixedNewlines)
-  } catch {
-    // 继续
+  } catch (e3) {
+    console.error(`[distiller] 策略3（修复换行符）失败: ${(e3 as Error).message}`)
   }
 
-  // 修复策略 3：最后尝试——逐行连接，去除控制字符
+  // 策略 4：去除控制字符后再解析
   const sanitized = (braceMatch?.[0] ?? cleaned)
-    .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, '') // 去除控制字符（保留 \n \r \t）
+    .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, '')
   try {
     return JSON.parse(sanitized)
-  } catch (e) {
-    // 所有策略都失败，抛出包含原始文本前 500 字符的错误
-    const preview = cleaned.slice(0, 500)
-    throw new Error(
-      `JSON 解析失败: ${(e as Error).message}\n响应预览: ${preview}`,
-    )
+  } catch (e4) {
+    console.error(`[distiller] 策略4（去控制字符）失败: ${(e4 as Error).message}`)
   }
+
+  // 所有策略失败——记录完整响应供排查
+  console.error(`[distiller] JSON 解析全部失败，完整响应:\n${text}`)
+  throw new Error(
+    `JSON 解析失败，已尝试4种策略。响应预览（前500字符）: ${text.slice(0, 500)}`,
+  )
 }
 
 // ── JSON-RPC Handlers ──
@@ -160,13 +171,17 @@ export async function handleJudgeValue(
 
   const p = getProvider()
   const processed = preprocess(content)
+  console.error(`[distiller] judge_value: 内容 ${content.length} 字符 → 预处理后 ${processed.length} 字符`)
 
   const result = await p.distill(PROMPT_B_LIGHT, processed)
+  console.error(`[distiller] judge_value: LLM 响应 ${result.content.length} 字符，tokens: in=${result.promptTokens} out=${result.completionTokens}`)
+
   const parsed = extractJson(result.content) as {
     value: string
     type: string
     reason: string
   }
+  console.error(`[distiller] judge_value 结果: value=${parsed.value}, type=${parsed.type}`)
 
   return {
     ...parsed,
@@ -190,8 +205,11 @@ export async function handleDistillFull(
 
   const p = getProvider()
   const processed = preprocess(content)
+  console.error(`[distiller] distill_full: 内容 ${content.length} 字符 → 预处理后 ${processed.length} 字符`)
 
   const result = await p.distill(PROMPT_B_FULL, processed)
+  console.error(`[distiller] distill_full: LLM 响应 ${result.content.length} 字符，tokens: in=${result.promptTokens} out=${result.completionTokens}`)
+
   const parsed = extractJson(result.content) as {
     title: string
     type: string
@@ -202,6 +220,7 @@ export async function handleDistillFull(
     tags: string[]
     tech_stack: string[]
   }
+  console.error(`[distiller] distill_full 结果: value=${parsed.value}, type=${parsed.type}, title="${parsed.title}"`)
 
   return {
     ...parsed,

@@ -6,6 +6,7 @@
  */
 import { invoke } from '@tauri-apps/api/core'
 import type {
+  AppConfigDto,
   Card,
   CardSummary,
   ListCardsParams,
@@ -76,4 +77,10 @@ export const api = {
 
   /** 获取知识类型统计（知识库侧栏） */
   listCardTypes: () => invoke<TypeCount[]>('list_card_types'),
+
+  /** 读取当前应用配置 */
+  getConfig: () => invoke<AppConfigDto>('get_config'),
+
+  /** 保存应用配置（写磁盘 + 热更新内存） */
+  saveConfig: (config: AppConfigDto) => invoke<void>('save_config', { config }),
 }
