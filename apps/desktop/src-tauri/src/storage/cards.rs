@@ -245,6 +245,38 @@ impl Database {
     }
 
     /// 删除卡片（级联清理关联表和 FTS 索引，不存在时返回 NotFound）
+    /// 删除某会话关联的全部卡片（含 card_tags 与 FTS 行）。
+    ///
+    /// 用于重新分析前清理旧笔记，避免同一 session 下多张卡片。
+    /// 注意：在单事务内完成，避免与 `delete_card` 嵌套加锁导致死锁。
+    pub fn delete_cards_for_session(&self, session_db_id: &str) -> DbResult<u64> {
+        let mut conn = self.conn();
+        let tx = conn.transaction()?;
+        let mut stmt = tx.prepare("SELECT id FROM cards WHERE session_id = ?")?;
+        let ids: Vec<String> = stmt
+            .query_map(params![session_db_id], |row| row.get(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+        drop(stmt);
+
+        for id in &ids {
+            tx.execute("DELETE FROM card_tags WHERE card_id = ?", params![id])?;
+            tx.execute(
+                "DELETE FROM cards_fts WHERE rowid = (SELECT rowid FROM cards WHERE id = ?)",
+                params![id],
+            )?;
+            tx.execute("DELETE FROM cards WHERE id = ?", params![id])?;
+        }
+        tx.commit()?;
+        if !ids.is_empty() {
+            log::info!(
+                "已删除会话 {} 下的 {} 张旧卡片",
+                session_db_id,
+                ids.len()
+            );
+        }
+        Ok(ids.len() as u64)
+    }
+
     pub fn delete_card(&self, id: &str) -> DbResult<()> {
         let mut conn = self.conn();
         let tx = conn.transaction()?;
@@ -274,5 +306,44 @@ impl Database {
         }
         log::debug!("卡片反馈更新: id={}, feedback={}", id, feedback);
         Ok(())
+    }
+
+    /// 查询所有标签及其关联的卡片数量（按数量降序），用于知识库侧栏标签筛选。
+    pub fn list_all_tags(&self) -> DbResult<Vec<TagCount>> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare(
+            "SELECT t.name, COUNT(ct.card_id) as cnt
+             FROM tags t
+             LEFT JOIN card_tags ct ON t.id = ct.tag_id
+             GROUP BY t.id, t.name
+             HAVING cnt > 0
+             ORDER BY cnt DESC, t.name ASC",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(TagCount {
+                name: row.get(0)?,
+                count: row.get(1)?,
+            })
+        })?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(DbError::from)
+    }
+
+    /// 按知识类型统计卡片数量（按数量降序），用于知识库侧栏类型筛选。
+    pub fn list_card_type_counts(&self) -> DbResult<Vec<TypeCount>> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare(
+            r#"SELECT "type", COUNT(*) as cnt
+               FROM cards
+               WHERE "type" IS NOT NULL AND "type" != ''
+               GROUP BY "type"
+               ORDER BY cnt DESC, "type" ASC"#,
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(TypeCount {
+                name: row.get(0)?,
+                count: row.get(1)?,
+            })
+        })?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(DbError::from)
     }
 }

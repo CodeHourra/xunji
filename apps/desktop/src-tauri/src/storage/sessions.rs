@@ -16,16 +16,20 @@ fn session_summary_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Session
         project_name: row.get(5)?,
         message_count: row.get(6)?,
         status: row.get(7)?,
-        updated_at: row.get(8)?,
+        value: row.get(8)?,
+        updated_at: row.get(9)?,
         // SQLite 存储 INTEGER 0/1，需手动转 bool
-        has_updates: row.get::<_, i64>(9)? != 0,
-        created_at: row.get(10)?,
+        has_updates: row.get::<_, i64>(10)? != 0,
+        created_at: row.get(11)?,
+        card_id: row.get(12)?,
     })
 }
 
-const SESSION_SUMMARY_COLUMNS: &str =
-    "id, source_id, session_id, source_host, project_path, project_name, \
-     message_count, status, updated_at, has_updates, created_at";
+/// 列表查询列：须与 `session_summary_from_row` 下标一致；`card_id` 为相关子查询。
+const SESSION_SUMMARY_COLUMNS: &str = "\
+    s.id, s.source_id, s.session_id, s.source_host, s.project_path, s.project_name, \
+    s.message_count, s.status, s.value, s.updated_at, s.has_updates, s.created_at, \
+    (SELECT c.id FROM cards c WHERE c.session_id = s.id ORDER BY c.created_at DESC LIMIT 1)";
 
 impl Database {
     /// 导入会话。使用 INSERT OR IGNORE 实现去重（唯一键: session_id + source_host）。
@@ -173,8 +177,11 @@ impl Database {
             conditions.push("source_id = ?");
             param_values.push(Box::new(source.clone()));
         }
+        if let Some(ref host) = filters.host {
+            conditions.push("source_host = ?");
+            param_values.push(Box::new(host.clone()));
+        }
         if let Some(ref project) = filters.project {
-            // 同时匹配项目名称和路径，兼容不同填充方式
             conditions.push("(project_name = ? OR project_path = ?)");
             param_values.push(Box::new(project.clone()));
             param_values.push(Box::new(project.clone()));
@@ -202,7 +209,7 @@ impl Database {
         // 再查当页数据
         let offset = page.saturating_sub(1) as i64 * page_size as i64;
         let list_sql = format!(
-            "SELECT {} FROM sessions{} ORDER BY created_at DESC LIMIT ? OFFSET ?",
+            "SELECT {} FROM sessions s{} ORDER BY s.created_at DESC LIMIT ? OFFSET ?",
             SESSION_SUMMARY_COLUMNS, where_clause
         );
 
@@ -240,6 +247,19 @@ impl Database {
             Some(row) => Ok(Some(row.get(0)?)),
             None => Ok(None),
         }
+    }
+
+    /// 将会话标记为分析失败，写入 error_message 供前端展示。
+    pub fn update_session_error(&self, id: &str, message: &str) -> DbResult<()> {
+        let n = self.conn().execute(
+            "UPDATE sessions SET status = 'error', error_message = ?1 WHERE id = ?2",
+            params![message, id],
+        )?;
+        if n == 0 {
+            return Err(DbError::NotFound(id.to_string()));
+        }
+        log::warn!("会话分析失败: id={}, msg={}", id, message);
+        Ok(())
     }
 
     /// 更新会话分析状态。status 为 "analyzed" 时自动设置 analyzed_at 为当前时间。
@@ -285,5 +305,38 @@ impl Database {
             return Err(DbError::NotFound(id.to_string()));
         }
         Ok(())
+    }
+
+    /// 删除会话下的所有消息（用于增量同步时重新导入）
+    pub fn delete_session_messages(&self, session_db_id: &str) -> DbResult<u64> {
+        let conn = self.conn();
+        let deleted = conn.execute(
+            "DELETE FROM messages WHERE session_id = ?1",
+            params![session_db_id],
+        )?;
+        log::debug!("删除会话 {} 的 {} 条旧消息", session_db_id, deleted);
+        Ok(deleted as u64)
+    }
+
+    /// 按 source_id → source_host → project_name 分组统计会话数量，用于构建侧栏目录树。
+    ///
+    /// 返回扁平的分组列表，前端负责组装成树结构。
+    pub fn get_session_groups(&self) -> DbResult<Vec<SessionGroupCount>> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare(
+            "SELECT source_id, source_host, project_name, COUNT(*) as cnt
+             FROM sessions
+             GROUP BY source_id, source_host, project_name
+             ORDER BY source_id, source_host, project_name",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(SessionGroupCount {
+                source_id: row.get(0)?,
+                source_host: row.get(1)?,
+                project_name: row.get(2)?,
+                count: row.get(3)?,
+            })
+        })?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(DbError::from)
     }
 }
