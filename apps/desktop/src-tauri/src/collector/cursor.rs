@@ -112,7 +112,8 @@ struct WorkspaceInfo {
     project_path: Option<String>,
     /// 项目名称（从路径推导）
     project_name: Option<String>,
-    /// Composer 显示名称
+    /// Composer 显示名称（v0.2 用于列表展示，暂未读取）
+    #[allow(dead_code)]
     composer_name: Option<String>,
     /// Composer 创建时间（毫秒时间戳）
     created_at: Option<i64>,

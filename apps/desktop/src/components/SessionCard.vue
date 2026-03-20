@@ -6,6 +6,8 @@ import type { SessionSummary } from '../types'
 
 const props = defineProps<{
   session: SessionSummary
+  /** 外部正在分析该卡片（SessionsView 传入） */
+  analyzing?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -25,19 +27,20 @@ const valueColors: Record<string, string> = {
 
 const barColor = computed(() => valueColors[valueKey.value] || valueColors.none)
 
-function openNote() {
-  if (props.session.cardId) {
-    void router.push({
-      name: 'session-detail',
-      params: { sessionId: props.session.id },
-      query: { cardId: props.session.cardId },
-    })
-  }
+/** 点击卡片整行 → 跳转详情 */
+function openSession() {
+  void router.push({
+    name: 'session-detail',
+    params: { sessionId: props.session.id },
+    query: props.session.cardId ? { cardId: props.session.cardId } : {},
+  })
 }
 
-function onPrimary() {
+/** 右侧按钮：有卡片→直接查看笔记，无卡片→触发分析 */
+function onAction(e: MouseEvent) {
+  e.stopPropagation()
   if (props.session.cardId) {
-    openNote()
+    openSession()
   } else {
     emit('analyze', props.session.id)
   }
@@ -68,14 +71,22 @@ const statusLabel = computed(() => {
     default: return props.session.status
   }
 })
+
+/** 按钮 loading 态：外部正在分析 OR 会话状态为 analyzing */
+const actionLoading = computed(
+  () => props.analyzing || props.session.status === 'analyzing',
+)
 </script>
 
 <template>
   <div
-    class="group relative rounded-lg border bg-white dark:bg-neutral-900 transition-all duration-150 hover:shadow-sm cursor-default"
+    class="group relative rounded-lg border bg-white dark:bg-neutral-900
+           transition-all duration-150 cursor-pointer
+           hover:shadow-sm hover:border-neutral-300 dark:hover:border-neutral-700"
     :class="session.cardId
       ? 'border-neutral-200 dark:border-neutral-800'
       : 'border-neutral-200/70 dark:border-neutral-800/70 border-dashed'"
+    @click="openSession"
   >
     <!-- 左侧价值色条 -->
     <div
@@ -92,7 +103,11 @@ const statusLabel = computed(() => {
         </div>
         <div class="flex items-center gap-1.5 mt-1">
           <span :class="sourceIcon" class="w-3.5 h-3.5 text-neutral-400 shrink-0" />
-          <span class="text-sm font-medium text-neutral-800 dark:text-neutral-200 truncate" :title="session.projectName || session.projectPath || '未命名项目'">
+          <span
+            class="text-sm font-medium text-neutral-800 dark:text-neutral-200 truncate
+                   group-hover:text-brand-700 dark:group-hover:text-brand-400 transition-colors"
+            :title="session.projectName || session.projectPath || '未命名项目'"
+          >
             {{ session.projectName || session.projectPath || '未命名项目' }}
           </span>
         </div>
@@ -121,23 +136,28 @@ const statusLabel = computed(() => {
           </n-tag>
         </div>
         <p class="text-xs text-neutral-500 dark:text-neutral-400 line-clamp-1 mt-1.5 leading-relaxed">
-          <template v-if="session.cardId">知识已提炼，可点击查看笔记与对话回放。</template>
-          <template v-else>原始对话，点击「分析」提炼编程知识。</template>
+          <template v-if="session.cardId">知识已提炼，点击查看笔记与对话回放。</template>
+          <template v-else-if="session.status === 'error'">分析失败，点击查看详情或重试。</template>
+          <template v-else>原始对话，点击查看内容或进行知识提炼。</template>
         </p>
       </div>
 
-      <!-- 右区：操作 -->
-      <div class="shrink-0">
+      <!-- 右区：操作按钮（阻止冒泡，不触发整行跳转） -->
+      <div class="shrink-0" @click.stop>
         <n-button
           :type="session.cardId ? 'default' : 'primary'"
           size="small"
-          :loading="session.status === 'analyzing'"
-          :disabled="session.status === 'analyzing'"
-          @click="onPrimary"
+          :loading="actionLoading"
+          :disabled="actionLoading"
+          @click="onAction"
         >
           <span class="inline-flex items-center gap-1.5">
-            <span v-if="session.status !== 'analyzing'" :class="session.cardId ? 'i-lucide-book-open' : 'i-lucide-sparkles'" class="w-3.5 h-3.5" />
-            {{ session.status === 'analyzing' ? '分析中…' : (session.cardId ? '查看笔记' : '分析') }}
+            <span
+              v-if="!actionLoading"
+              :class="session.cardId ? 'i-lucide-book-open' : 'i-lucide-sparkles'"
+              class="w-3.5 h-3.5"
+            />
+            {{ actionLoading ? '分析中…' : (session.cardId ? '查看笔记' : '分析') }}
           </span>
         </n-button>
       </div>

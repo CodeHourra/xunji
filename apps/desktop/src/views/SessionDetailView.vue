@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { NButton, NSpin, NResult } from 'naive-ui'
+import { NButton, NResult, NSpin, NTag, NTooltip } from 'naive-ui'
 import NoteCard from '../components/NoteCard.vue'
 import ChatReplay from '../components/ChatReplay.vue'
 import { api } from '../lib/tauri'
@@ -18,15 +18,24 @@ const session = ref<Session | null>(null)
 const messages = ref<Message[]>([])
 const card = ref<Card | null>(null)
 const loading = ref(true)
-const err = ref<string | null>(null)
+const analyzing = ref(false)
+const analyzeError = ref<string | null>(null)
+const loadError = ref<string | null>(null)
 const mode = ref<'note' | 'chat'>('note')
+
+// ────────────── 数据加载 ──────────────
 
 async function load() {
   loading.value = true
-  err.value = null
+  loadError.value = null
   try {
-    session.value = await api.getSession(props.sessionId)
-    messages.value = await api.getSessionMessages(props.sessionId)
+    const [sess, msgs] = await Promise.all([
+      api.getSession(props.sessionId),
+      api.getSessionMessages(props.sessionId),
+    ])
+    session.value = sess
+    messages.value = msgs
+
     const cardId = typeof route.query.cardId === 'string' ? route.query.cardId : null
     if (cardId) {
       card.value = await api.getCard(cardId)
@@ -35,25 +44,24 @@ async function load() {
       card.value = null
     }
   } catch (e) {
-    err.value = e instanceof Error ? e.message : String(e)
+    loadError.value = e instanceof Error ? e.message : String(e)
   } finally {
     loading.value = false
   }
 }
 
 onMounted(load)
-watch(
-  () => [props.sessionId, route.query.cardId],
-  () => {
-    void load()
-  },
-)
+watch(() => [props.sessionId, route.query.cardId], () => { void load() })
+
+// ────────────── 操作 ──────────────
 
 function close() {
   void router.push({ name: 'sessions' })
 }
 
-async function reanalyze() {
+async function analyze() {
+  analyzing.value = true
+  analyzeError.value = null
   try {
     const c = await api.distillSession(props.sessionId)
     card.value = c
@@ -64,59 +72,206 @@ async function reanalyze() {
       query: { cardId: c.id },
     })
   } catch (e) {
-    err.value = e instanceof Error ? e.message : String(e)
+    analyzeError.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    analyzing.value = false
   }
+}
+
+// ────────────── 会话元数据展示 ──────────────
+
+const sourceIcon = computed(() => {
+  if (!session.value) return 'i-lucide-message-square'
+  if (session.value.sourceId === 'claude-code') return 'i-lucide-bot'
+  if (session.value.sourceId === 'cursor') return 'i-lucide-terminal-square'
+  return 'i-lucide-message-square'
+})
+
+const statusTagType = computed<'default' | 'info' | 'success' | 'error'>(() => {
+  switch (session.value?.status) {
+    case 'analyzed': return 'success'
+    case 'analyzing': return 'info'
+    case 'error': return 'error'
+    default: return 'default'
+  }
+})
+
+const statusLabel = computed(() => {
+  switch (session.value?.status) {
+    case 'pending': return '待分析'
+    case 'analyzing': return '分析中'
+    case 'analyzed': return '已分析'
+    case 'error': return '失败'
+    default: return session.value?.status ?? ''
+  }
+})
+
+const valueColors: Record<string, string> = {
+  high: '#10b981',
+  medium: '#f59e0b',
+  low: '#94a3b8',
 }
 </script>
 
 <template>
-  <div class="h-full overflow-y-auto p-6 max-w-4xl mx-auto">
-    <n-button text class="mb-4" @click="close">
-      <span class="inline-flex items-center gap-1">
-        <span class="i-lucide-arrow-left w-4 h-4" />
-        返回列表
-      </span>
-    </n-button>
+  <!-- 整体高度撑满父容器，内部滚动 -->
+  <div class="flex flex-col h-full">
 
-    <div v-if="loading" class="flex items-center justify-center py-20">
-      <n-spin size="medium" />
-    </div>
+    <!-- ── 顶部 Header ── -->
+    <div class="shrink-0 border-b border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 px-5 py-3">
+      <div class="max-w-4xl mx-auto flex items-start gap-4">
 
-    <n-result v-else-if="err" status="error" :title="err" class="py-12">
-      <template #footer>
-        <n-button @click="close">返回列表</n-button>
-      </template>
-    </n-result>
-
-    <template v-else-if="card">
-      <NoteCard
-        :card="card"
-        :mode="mode"
-        @update:mode="mode = $event"
-        @close="close"
-        @reanalyze="reanalyze"
-      >
-        <template #chat>
-          <div class="max-h-[480px] overflow-auto pr-1">
-            <ChatReplay :messages="messages" />
-          </div>
-        </template>
-      </NoteCard>
-    </template>
-
-    <template v-else>
-      <div class="rounded-xl border border-neutral-200 dark:border-neutral-800 p-6 bg-white dark:bg-neutral-900">
-        <p class="text-sm text-neutral-600 dark:text-neutral-400 mb-4">
-          该会话尚无笔记。可点击下方进行首次分析。
-        </p>
-        <ChatReplay :messages="messages" />
-        <n-button type="primary" class="mt-4" @click="reanalyze">
-          <span class="inline-flex items-center gap-1.5">
-            <span class="i-lucide-sparkles w-4 h-4" />
-            分析并生成笔记
+        <!-- 返回按钮 -->
+        <n-button text size="small" class="mt-0.5 shrink-0" @click="close">
+          <span class="inline-flex items-center gap-1 text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200">
+            <span class="i-lucide-arrow-left w-4 h-4" />
+            返回
           </span>
         </n-button>
+
+        <!-- 会话元信息 -->
+        <div class="flex-1 min-w-0">
+          <div v-if="session" class="flex items-center gap-2 flex-wrap">
+            <span :class="sourceIcon" class="w-4 h-4 text-neutral-500 shrink-0" />
+            <span class="font-semibold text-neutral-900 dark:text-neutral-100 truncate">
+              {{ session.projectName || session.projectPath || '未命名项目' }}
+            </span>
+            <n-tag size="tiny" :bordered="false" :type="statusTagType">{{ statusLabel }}</n-tag>
+            <n-tag
+              v-if="session.value"
+              size="tiny"
+              :bordered="false"
+              :color="{ color: valueColors[session.value] ?? '#94a3b8', textColor: '#fff' }"
+              class="uppercase font-bold"
+            >
+              {{ session.value }}
+            </n-tag>
+          </div>
+          <div v-if="session" class="flex items-center gap-3 mt-1 text-[11px] text-neutral-400">
+            <span class="flex items-center gap-1">
+              <span class="i-lucide-calendar w-3 h-3" />
+              {{ session.updatedAt?.replace('T', ' ').slice(0, 16) }}
+            </span>
+            <span class="flex items-center gap-1">
+              <span class="i-lucide-message-circle w-3 h-3" />
+              {{ session.messageCount }} 条消息
+            </span>
+            <span class="flex items-center gap-1 font-mono opacity-70" :title="session.sessionId">
+              <span class="i-lucide-hash w-3 h-3" />
+              {{ session.sessionId.slice(0, 12) }}…
+            </span>
+          </div>
+        </div>
+
+        <!-- 右侧：分析按钮（无卡片时显示） -->
+        <div v-if="session && !card && !loading" class="shrink-0">
+          <n-button
+            type="primary"
+            size="small"
+            :loading="analyzing"
+            :disabled="analyzing"
+            @click="analyze"
+          >
+            <span class="inline-flex items-center gap-1.5">
+              <span v-if="!analyzing" class="i-lucide-sparkles w-3.5 h-3.5" />
+              {{ analyzing ? '分析中…' : '提炼笔记' }}
+            </span>
+          </n-button>
+        </div>
       </div>
-    </template>
+    </div>
+
+    <!-- ── 主内容区（可滚动） ── -->
+    <div class="flex-1 min-h-0 overflow-y-auto">
+      <div class="max-w-4xl mx-auto px-5 py-5">
+
+        <!-- 加载中 -->
+        <div v-if="loading" class="flex items-center justify-center py-20">
+          <n-spin size="medium" />
+        </div>
+
+        <!-- 加载失败 -->
+        <n-result v-else-if="loadError" status="error" :title="loadError" class="py-12">
+          <template #footer>
+            <n-button @click="close">返回列表</n-button>
+            <n-button class="ml-2" @click="load">重试</n-button>
+          </template>
+        </n-result>
+
+        <!-- ── 有卡片：展示笔记 ── -->
+        <template v-else-if="card">
+          <!-- 分析中的错误提示 -->
+          <div
+            v-if="analyzeError"
+            class="mb-4 flex items-center gap-2 rounded-lg border border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-950/30 px-3 py-2 text-sm text-red-600 dark:text-red-400"
+          >
+            <span class="i-lucide-alert-circle w-4 h-4 shrink-0" />
+            <span class="flex-1">{{ analyzeError }}</span>
+            <button class="opacity-60 hover:opacity-100" @click="analyzeError = null">✕</button>
+          </div>
+
+          <NoteCard
+            :card="card"
+            :mode="mode"
+            @update:mode="mode = $event"
+            @close="close"
+            @reanalyze="analyze"
+          >
+            <template #chat>
+              <div class="max-h-[520px] overflow-y-auto pr-1">
+                <ChatReplay :messages="messages" />
+              </div>
+            </template>
+          </NoteCard>
+        </template>
+
+        <!-- ── 无卡片：展示原始对话 ── -->
+        <template v-else-if="session">
+          <!-- 分析错误提示 -->
+          <div
+            v-if="analyzeError"
+            class="mb-4 flex items-center gap-2 rounded-lg border border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-950/30 px-3 py-2 text-sm text-red-600 dark:text-red-400"
+          >
+            <span class="i-lucide-alert-circle w-4 h-4 shrink-0" />
+            <span class="flex-1">{{ analyzeError }}</span>
+            <button class="opacity-60 hover:opacity-100" @click="analyzeError = null">✕</button>
+          </div>
+
+          <!-- 分析进行中遮罩 -->
+          <div
+            v-if="analyzing"
+            class="mb-4 flex items-center gap-3 rounded-lg border border-brand-200 dark:border-brand-800 bg-brand-50 dark:bg-brand-950/30 px-4 py-3"
+          >
+            <n-spin size="small" />
+            <div>
+              <p class="text-sm font-medium text-brand-700 dark:text-brand-300">正在提炼笔记…</p>
+              <p class="text-xs text-brand-600/70 dark:text-brand-400/70 mt-0.5">LLM 分析对话内容，通常需要 15–60 秒</p>
+            </div>
+          </div>
+
+          <!-- 对话回放 -->
+          <div class="rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900">
+            <!-- 无对话消息时的空状态 -->
+            <div v-if="!messages.length" class="px-6 py-12 text-center">
+              <span class="i-lucide-message-square-off w-8 h-8 text-neutral-300 dark:text-neutral-600 mx-auto block mb-2" />
+              <p class="text-sm text-neutral-400">该会话暂无消息记录</p>
+            </div>
+            <div v-else class="p-4">
+              <div class="flex items-center justify-between text-[11px] text-neutral-400 mb-3 pb-3 border-b border-neutral-100 dark:border-neutral-800">
+                <span>对话记录（{{ messages.length }} 条消息）</span>
+                <n-tooltip trigger="hover" :delay="400">
+                  <template #trigger>
+                    <span class="i-lucide-info w-3.5 h-3.5 cursor-default" />
+                  </template>
+                  点击「提炼笔记」按钮，AI 将从此对话中提取编程知识
+                </n-tooltip>
+              </div>
+              <ChatReplay :messages="messages" />
+            </div>
+          </div>
+        </template>
+
+      </div>
+    </div>
   </div>
 </template>

@@ -106,7 +106,7 @@ impl<'a> CollectorScheduler<'a> {
     /// - session_id + source_host 不存在 → INSERT（新增）
     /// - 存在 + message_count 增加    → 标记 has_updates（更新）
     /// - 存在 + message_count 不变    → SKIP（跳过）
-    fn dedup_and_write(&self, source_id: &str, sessions: &[NormalizedSession]) -> SyncResult {
+    fn dedup_and_write(&self, _source_id: &str, sessions: &[NormalizedSession]) -> SyncResult {
         let mut result = SyncResult {
             found: sessions.len() as u32,
             ..Default::default()

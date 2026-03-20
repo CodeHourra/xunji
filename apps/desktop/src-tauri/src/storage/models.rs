@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 /// 数据源配置（如 Claude Code、Cursor 等 AI IDE）
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)] // v0.2 设置页面使用
 pub struct Source {
     pub id: String,
     /// 数据源显示名称，如 "Claude Code"
@@ -179,6 +180,7 @@ pub struct CardSummary {
 
 /// 知识标签（LLM 自动生成或用户手动创建）
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)] // v0.2 标签管理页使用
 pub struct Tag {
     pub id: String,
     /// 标签名称（唯一约束）
@@ -194,6 +196,7 @@ pub struct Tag {
 
 /// 数据源同步操作日志
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)] // v0.2 同步历史页使用
 pub struct SyncLog {
     pub id: String,
     /// 触发同步的数据源 ID
@@ -214,6 +217,7 @@ pub struct SyncLog {
 
 /// LLM 调用的 Token 用量与费用记录
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)] // v0.2 费用统计页使用
 pub struct TokenUsage {
     pub id: String,
     /// 关联的知识卡片 ID

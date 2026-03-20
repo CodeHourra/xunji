@@ -13,7 +13,3 @@ pub mod claude_code;
 pub mod cursor;
 pub mod scheduler;
 
-pub use claude_code::ClaudeCodeCollector;
-pub use cursor::CursorCollector;
-pub use normalizer::{NormalizedMessage, NormalizedSession};
-pub use scheduler::{CollectorScheduler, SyncResult};

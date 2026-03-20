@@ -42,11 +42,12 @@ impl SidecarManager {
     /// 查找 sidecar 二进制路径（开发模式优先，再找全局安装位置）
     pub fn find_binary() -> Option<PathBuf> {
         // 开发模式：从 packages/sidecar/dist/ 加载
+        // CARGO_MANIFEST_DIR = .../apps/desktop/src-tauri
+        // parent×3: src-tauri → desktop → apps → xunji root
         let dev_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .parent() // src-tauri
-            .and_then(|p| p.parent()) // desktop
-            .and_then(|p| p.parent()) // apps
-            .and_then(|p| p.parent()) // xunji root
+            .parent() // → apps/desktop
+            .and_then(|p| p.parent()) // → apps
+            .and_then(|p| p.parent()) // → xunji root
             .map(|p| p.join("packages/sidecar/dist/xunji-sidecar"));
 
         if let Some(ref path) = dev_path {

@@ -122,6 +122,7 @@ function openSearchHit(cardId: string, sessionId: string) {
             v-for="s in sessions.items"
             :key="s.id"
             :session="s"
+            :analyzing="analyzing === s.id"
             @analyze="onAnalyze"
           />
         </div>

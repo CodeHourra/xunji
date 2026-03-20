@@ -17,8 +17,5 @@ mod migrations;
 mod search;
 mod sessions;
 
-pub use db::{Database, DbError, DbResult};
-pub use models::{
-    Card, CardFilters, CardSummary, Message, NewCard, NewMessage, PaginatedResult, Session,
-    SessionFilters, SessionSummary,
-};
+// Database 是模块边界处唯一被外部直接引用的类型，其余类型通过 models:: 访问
+pub use db::Database;
