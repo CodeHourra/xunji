@@ -2,7 +2,7 @@
   "name": "xunji",
   "private": true,
   "workspaces": [
-    "apps/desktop/src",
+    "apps/desktop",
     "packages/*"
   ]
 }

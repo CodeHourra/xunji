@@ -1,0 +1,18 @@
+[package]
+name = "xunji-desktop"
+version = "0.1.0"
+description = "寻迹 - AI 编程知识管理平台"
+authors = ["XunJi"]
+edition = "2021"
+
+[lib]
+name = "xunji_desktop_lib"
+crate-type = ["lib", "cdylib", "staticlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
