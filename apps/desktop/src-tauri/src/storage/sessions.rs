@@ -79,19 +79,20 @@ impl Database {
     pub fn insert_messages(
         &self,
         session_db_id: &str,
-        messages: &[(String, String, Option<String>, i32, i32)],
+        messages: &[NewMessage],
     ) -> DbResult<()> {
         let conn = self.conn();
         let tx = conn.unchecked_transaction()?;
-        for (seq_order, (role, content, timestamp, tokens_in, tokens_out)) in
-            messages.iter().enumerate()
-        {
+        for (seq_order, msg) in messages.iter().enumerate() {
             let id = Uuid::new_v4().to_string();
             tx.execute(
                 "INSERT INTO messages (
                     id, session_id, role, content, timestamp, tokens_in, tokens_out, seq_order
                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-                params![id, session_db_id, role, content, timestamp, tokens_in, tokens_out, seq_order as i32],
+                params![
+                    id, session_db_id, msg.role, msg.content,
+                    msg.timestamp, msg.tokens_in, msg.tokens_out, seq_order as i32
+                ],
             )?;
         }
         tx.commit()?;

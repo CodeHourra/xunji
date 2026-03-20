@@ -19,6 +19,6 @@ mod sessions;
 
 pub use db::{Database, DbError, DbResult};
 pub use models::{
-    Card, CardFilters, CardSummary, Message, PaginatedResult, Session, SessionFilters,
-    SessionSummary,
+    Card, CardFilters, CardSummary, Message, NewCard, NewMessage, PaginatedResult, Session,
+    SessionFilters, SessionSummary,
 };

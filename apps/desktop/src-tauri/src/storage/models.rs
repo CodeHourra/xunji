@@ -218,6 +218,45 @@ pub struct TokenUsage {
     pub created_at: String,
 }
 
+// ─────────────────────────────── 写入用结构体 ─────────────────────────
+//
+// 将多参数方法的入参封装为结构体，提升可读性和可维护性。
+
+/// 创建知识卡片的入参
+pub struct NewCard<'a> {
+    pub session_id: &'a str,
+    pub title: &'a str,
+    /// 知识类型: debug | architecture | performance | best-practice | ...
+    pub card_type: Option<&'a str>,
+    /// 价值等级: high | medium | low | none
+    pub value: Option<&'a str>,
+    pub summary: Option<&'a str>,
+    /// Markdown 格式技术笔记
+    pub note: &'a str,
+    pub source_name: Option<&'a str>,
+    pub project_name: Option<&'a str>,
+    pub prompt_tokens: i32,
+    pub completion_tokens: i32,
+    /// 费用（元），浮点精度在 v0.1 可接受（不用于财务计算）
+    pub cost_yuan: f64,
+    /// LLM 生成的标签列表
+    pub tags: &'a [String],
+}
+
+/// 批量写入消息的单条入参
+pub struct NewMessage {
+    /// 角色: user | assistant
+    pub role: String,
+    /// 消息文本内容
+    pub content: String,
+    /// 消息时间戳 (RFC 3339)
+    pub timestamp: Option<String>,
+    /// 该消息消耗的输入 token 数
+    pub tokens_in: i32,
+    /// 该消息消耗的输出 token 数
+    pub tokens_out: i32,
+}
+
 // ─────────────────────────────── 分页与筛选 ───────────────────────────
 
 /// 分页查询结果的通用封装

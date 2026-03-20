@@ -110,44 +110,41 @@ impl Database {
     ///   1. 写入 cards 表
     ///   2. 创建/关联标签（tags + card_tags）
     ///   3. 同步 FTS5 全文索引
-    pub fn insert_card(
-        &self,
-        session_id: &str,
-        title: &str,
-        card_type: Option<&str>,
-        value: Option<&str>,
-        summary: Option<&str>,
-        note: &str,
-        source_name: Option<&str>,
-        project_name: Option<&str>,
-        prompt_tokens: i32,
-        completion_tokens: i32,
-        cost_yuan: f64,
-        tags: &[String],
-    ) -> DbResult<String> {
+    pub fn insert_card(&self, card: &NewCard<'_>) -> DbResult<String> {
         let id = Uuid::new_v4().to_string();
         let now = Utc::now().to_rfc3339();
-        let tags_joined = tags.join(",");
+        let tags_joined = card.tags.join(",");
 
         let mut conn = self.conn();
         let tx = conn.transaction()?;
 
+        //  18 列 = 14 个 ? 占位符 + 4 个 NULL（category_id, memory, skill, feedback）
+        //
+        //  id  session_id  title  type  value  summary  note
+        //  ?   ?           ?      ?     ?      ?        ?
+        //
+        //  category_id  memory  skill  source_name  project_name
+        //  NULL         NULL    NULL   ?            ?
+        //
+        //  prompt_tokens  completion_tokens  cost_yuan  feedback  created_at  updated_at
+        //  ?              ?                  ?          NULL      ?           ?
         tx.execute(
             "INSERT INTO cards (
                 id, session_id, title, type, value, summary, note,
                 category_id, memory, skill, source_name, project_name,
                 prompt_tokens, completion_tokens, cost_yuan, feedback,
                 created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, ?, ?, ?, NULL, ?, ?)",
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, ?, ?, ?, ?, NULL, ?, ?)",
             params![
-                &id, session_id, title, card_type, value, summary, note,
-                source_name, project_name, prompt_tokens, completion_tokens, cost_yuan,
+                &id, card.session_id, card.title, card.card_type, card.value,
+                card.summary, card.note, card.source_name, card.project_name,
+                card.prompt_tokens, card.completion_tokens, card.cost_yuan,
                 &now, &now,
             ],
         )?;
 
         // 标签处理: INSERT OR IGNORE 保证幂等 → 查回 id → 关联
-        for tag_name in tags {
+        for tag_name in card.tags {
             let tag_id = Uuid::new_v4().to_string();
             tx.execute(
                 "INSERT OR IGNORE INTO tags (id, name, type) VALUES (?, ?, 'auto')",
@@ -164,7 +161,7 @@ impl Database {
             )?;
         }
 
-        // 手动同步 FTS5 索引（因为 content='cards' 需要外部触发）
+        // 手动同步 FTS5 索引（content='cards' 模式需要外部触发写入）
         tx.execute(
             "INSERT INTO cards_fts(rowid, title, summary, note, tags) \
              SELECT rowid, title, summary, note, ? FROM cards WHERE id = ?",
@@ -172,7 +169,10 @@ impl Database {
         )?;
 
         tx.commit()?;
-        log::info!("创建卡片: id={}, title={:?}, value={:?}, tags=[{}]", id, title, value, tags_joined);
+        log::info!(
+            "创建卡片: id={}, title={:?}, value={:?}, tags=[{}]",
+            id, card.title, card.value, tags_joined
+        );
         Ok(id)
     }
 
@@ -192,7 +192,7 @@ impl Database {
             .optional()?
             .ok_or_else(|| DbError::NotFound(format!("card {}", id)))?;
 
-        // 补充填充标签
+        // 关联查询标签名
         let mut stmt = conn.prepare(
             "SELECT t.name FROM tags t \
              INNER JOIN card_tags ct ON t.id = ct.tag_id \
@@ -200,8 +200,7 @@ impl Database {
         )?;
         card.tags = stmt
             .query_map(params![id], |row| row.get::<_, String>(0))?
-            .filter_map(|r| r.ok())
-            .collect();
+            .collect::<Result<Vec<_>, _>>()?;
         Ok(card)
     }
 
@@ -245,7 +244,7 @@ impl Database {
         })
     }
 
-    /// 删除卡片（级联清理关联表和 FTS 索引）
+    /// 删除卡片（级联清理关联表和 FTS 索引，不存在时返回 NotFound）
     pub fn delete_card(&self, id: &str) -> DbResult<()> {
         let mut conn = self.conn();
         let tx = conn.transaction()?;
@@ -255,7 +254,11 @@ impl Database {
             "DELETE FROM cards_fts WHERE rowid = (SELECT rowid FROM cards WHERE id = ?)",
             params![id],
         )?;
-        tx.execute("DELETE FROM cards WHERE id = ?", params![id])?;
+        let n = tx.execute("DELETE FROM cards WHERE id = ?", params![id])?;
+        if n == 0 {
+            // 事务会在 drop 时自动回滚
+            return Err(DbError::NotFound(format!("card {}", id)));
+        }
         tx.commit()?;
         log::info!("删除卡片: id={}", id);
         Ok(())
