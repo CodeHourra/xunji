@@ -1,5 +1,5 @@
 [package]
-name = "xunji-desktop"
+name = "寻迹"
 version = "0.1.0"
 description = "寻迹 - AI 编程知识管理平台"
 authors = ["XunJi"]

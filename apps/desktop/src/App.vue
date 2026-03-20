@@ -2,46 +2,31 @@
 </script>
 
 <template>
-  <div class="app">
-    <h1>寻迹 XunJi</h1>
-    <p>AI 编程知识管理平台</p>
+  <div class="h-screen flex flex-col items-center justify-center bg-neutral-50 dark:bg-neutral-900">
+    <h1 class="text-3xl font-bold text-neutral-800 dark:text-neutral-100">
+      寻迹 XunJi
+    </h1>
+    <p class="mt-2 text-neutral-500">
+      AI 编程知识管理平台
+    </p>
+    <div class="mt-4 flex gap-2">
+      <span class="px-3 py-1 rounded-full text-sm bg-value-high text-white">high</span>
+      <span class="px-3 py-1 rounded-full text-sm bg-value-medium text-white">medium</span>
+      <span class="px-3 py-1 rounded-full text-sm bg-value-low text-neutral-600">low</span>
+    </div>
   </div>
 </template>
 
 <style>
 :root {
   font-family: Inter, Avenir, Helvetica, Arial, sans-serif;
-  font-size: 16px;
-  line-height: 24px;
-  font-weight: 400;
-  color: #0f0f0f;
-  background-color: #f6f6f6;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  -webkit-text-size-adjust: 100%;
 }
 
 body {
   margin: 0;
-  display: flex;
-  place-items: center;
-  min-width: 320px;
-  min-height: 100vh;
-}
-
-#app {
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 2rem;
-  text-align: center;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    color: #f6f6f6;
-    background-color: #0f0f0f;
-  }
 }
 </style>
