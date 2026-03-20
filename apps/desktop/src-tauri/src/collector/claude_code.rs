@@ -204,15 +204,20 @@ fn parse_jsonl(path: &Path) -> Result<ParseResult, Box<dyn std::error::Error>> {
         }
 
         let message = &entry["message"];
-        let content = extract_content(message);
-        if content.trim().is_empty() {
+        let extracted = extract_content(message);
+        if extracted.text.trim().is_empty() {
             continue;
         }
 
-        let role = message["role"]
-            .as_str()
-            .unwrap_or(msg_type)
-            .to_string();
+        // 当 API 层 role 为 "user" 但内容全是 tool_result 时，标记为 "tool"
+        let role = if extracted.is_tool_result {
+            "tool".to_string()
+        } else {
+            message["role"]
+                .as_str()
+                .unwrap_or(msg_type)
+                .to_string()
+        };
 
         let timestamp = entry["timestamp"].as_str().map(String::from);
 
@@ -231,7 +236,7 @@ fn parse_jsonl(path: &Path) -> Result<ParseResult, Box<dyn std::error::Error>> {
 
         messages.push(NormalizedMessage {
             role,
-            content,
+            content: extracted.text,
             timestamp,
             tokens_in,
             tokens_out,
@@ -246,23 +251,41 @@ fn parse_jsonl(path: &Path) -> Result<ParseResult, Box<dyn std::error::Error>> {
     })
 }
 
+/// extract_content 的返回值
+struct ExtractedContent {
+    /// 提取的文本内容
+    text: String,
+    /// 该消息内容是否全部由 tool_result 组成（无真正的用户输入）
+    is_tool_result: bool,
+}
+
 /// 从 message 对象中提取文本内容。
 ///
 /// Claude Code 的 content 有两种格式：
 /// - 纯字符串（user 消息常见）
 /// - 数组（assistant 消息常见）：[{type: "text", text: "..."}, {type: "tool_use", name: "...", input: {...}}, ...]
-fn extract_content(message: &serde_json::Value) -> String {
+///
+/// 当 content 为数组且仅包含 tool_result 类型时，标记 is_tool_result = true，
+/// 调用方据此将 role 从 "user" 改为 "tool"。
+fn extract_content(message: &serde_json::Value) -> ExtractedContent {
     let content = &message["content"];
 
     match content {
-        serde_json::Value::String(s) => s.clone(),
+        serde_json::Value::String(s) => ExtractedContent {
+            text: s.clone(),
+            is_tool_result: false,
+        },
         serde_json::Value::Array(arr) => {
             let mut parts = Vec::new();
+            let mut has_text = false;
+            let mut has_tool_result = false;
+
             for item in arr {
                 match item["type"].as_str() {
                     Some("text") => {
                         if let Some(text) = item["text"].as_str() {
                             if !text.trim().is_empty() {
+                                has_text = true;
                                 parts.push(text.to_string());
                             }
                         }
@@ -273,6 +296,7 @@ fn extract_content(message: &serde_json::Value) -> String {
                         parts.push(format!("[Tool: {}]", name));
                     }
                     Some("tool_result") => {
+                        has_tool_result = true;
                         // tool_result 可能包含嵌套 content
                         if let Some(nested) = item["content"].as_str() {
                             let preview = truncate_str(nested, 200);
@@ -291,9 +315,19 @@ fn extract_content(message: &serde_json::Value) -> String {
                     _ => {}
                 }
             }
-            parts.join("\n\n")
+
+            // 没有 text 块且有 tool_result → 整条消息是工具返回值
+            let is_tool_result = !has_text && has_tool_result;
+
+            ExtractedContent {
+                text: parts.join("\n\n"),
+                is_tool_result,
+            }
         }
-        _ => String::new(),
+        _ => ExtractedContent {
+            text: String::new(),
+            is_tool_result: false,
+        },
     }
 }
 
@@ -342,7 +376,9 @@ mod tests {
         let msg = serde_json::json!({
             "content": "Hello, world!"
         });
-        assert_eq!(extract_content(&msg), "Hello, world!");
+        let result = extract_content(&msg);
+        assert_eq!(result.text, "Hello, world!");
+        assert!(!result.is_tool_result);
     }
 
     #[test]
@@ -353,7 +389,9 @@ mod tests {
                 { "type": "text", "text": "Second paragraph" }
             ]
         });
-        assert_eq!(extract_content(&msg), "First paragraph\n\nSecond paragraph");
+        let result = extract_content(&msg);
+        assert_eq!(result.text, "First paragraph\n\nSecond paragraph");
+        assert!(!result.is_tool_result);
     }
 
     #[test]
@@ -364,15 +402,30 @@ mod tests {
                 { "type": "tool_use", "name": "Read", "input": { "path": "/foo/bar.rs" } }
             ]
         });
-        let content = extract_content(&msg);
-        assert!(content.contains("Let me read the file."));
-        assert!(content.contains("[Tool: Read]"));
+        let result = extract_content(&msg);
+        assert!(result.text.contains("Let me read the file."));
+        assert!(result.text.contains("[Tool: Read]"));
+        assert!(!result.is_tool_result, "有 text 块时不应标记为 tool_result");
+    }
+
+    #[test]
+    fn test_extract_content_pure_tool_result() {
+        let msg = serde_json::json!({
+            "content": [
+                { "type": "tool_result", "content": "AGENTS.md\nblueprints\n创作进度\n正文" }
+            ]
+        });
+        let result = extract_content(&msg);
+        assert!(result.text.contains("[Tool Result:"));
+        assert!(result.is_tool_result, "纯 tool_result 内容应标记为 is_tool_result");
     }
 
     #[test]
     fn test_extract_content_empty() {
         let msg = serde_json::json!({});
-        assert_eq!(extract_content(&msg), "");
+        let result = extract_content(&msg);
+        assert_eq!(result.text, "");
+        assert!(!result.is_tool_result);
     }
 
     #[test]

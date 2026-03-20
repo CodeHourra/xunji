@@ -94,7 +94,7 @@ pub struct Message {
     pub id: String,
     /// 所属会话的数据库主键
     pub session_id: String,
-    /// 角色: user | assistant
+    /// 角色: user | assistant | tool
     pub role: String,
     /// 消息文本内容
     pub content: String,
@@ -260,7 +260,7 @@ pub struct NewCard<'a> {
 
 /// 批量写入消息的单条入参
 pub struct NewMessage {
-    /// 角色: user | assistant
+    /// 角色: user | assistant | tool
     pub role: String,
     /// 消息文本内容
     pub content: String,
