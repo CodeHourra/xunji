@@ -1,17 +1,22 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { NTag, NButton } from 'naive-ui'
+import { NTag, NButton, NCheckbox } from 'naive-ui'
 import type { SessionSummary } from '../types'
 
 const props = defineProps<{
   session: SessionSummary
   /** 外部正在分析该卡片（SessionsView 传入） */
   analyzing?: boolean
+  /** 批量选择模式：展示 checkbox */
+  selectable?: boolean
+  /** 当前是否被选中 */
+  selected?: boolean
 }>()
 
 const emit = defineEmits<{
   analyze: [id: string]
+  'update:selected': [id: string, checked: boolean]
 }>()
 
 const router = useRouter()
@@ -27,8 +32,23 @@ const valueColors: Record<string, string> = {
 
 const barColor = computed(() => valueColors[valueKey.value] || valueColors.none)
 
-/** 点击卡片整行 → 跳转详情 */
+/**
+ * 格式化字节数为可读大小（KB / MB）
+ * < 1 KB 显示 "<1 KB"
+ */
+function formatSize(bytes: number): string {
+  if (!bytes || bytes <= 0) return '—'
+  if (bytes < 1024) return '<1 KB'
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`
+}
+
+/** 点击卡片整行 → 批量模式切换选中，否则跳转详情 */
 function openSession() {
+  if (props.selectable) {
+    emit('update:selected', props.session.id, !props.selected)
+    return
+  }
   void router.push({
     name: 'session-detail',
     params: { sessionId: props.session.id },
@@ -40,7 +60,11 @@ function openSession() {
 function onAction(e: MouseEvent) {
   e.stopPropagation()
   if (props.session.cardId) {
-    openSession()
+    void router.push({
+      name: 'session-detail',
+      params: { sessionId: props.session.id },
+      query: { cardId: props.session.cardId },
+    })
   } else {
     emit('analyze', props.session.id)
   }
@@ -81,11 +105,15 @@ const actionLoading = computed(
 <template>
   <div
     class="group relative rounded-lg border bg-white dark:bg-neutral-900
-           transition-all duration-150 cursor-pointer
-           hover:shadow-sm hover:border-neutral-300 dark:hover:border-neutral-700"
-    :class="session.cardId
-      ? 'border-neutral-200 dark:border-neutral-800'
-      : 'border-neutral-200/70 dark:border-neutral-800/70 border-dashed'"
+           transition-all duration-150"
+    :class="[
+      selectable ? 'cursor-pointer' : 'cursor-pointer hover:shadow-sm',
+      selected
+        ? 'border-brand-400 dark:border-brand-600 bg-brand-50/40 dark:bg-brand-950/30'
+        : session.cardId
+          ? 'border-neutral-200 dark:border-neutral-800 hover:border-neutral-300 dark:hover:border-neutral-700'
+          : 'border-neutral-200/70 dark:border-neutral-800/70 border-dashed hover:border-neutral-300 dark:hover:border-neutral-700',
+    ]"
     @click="openSession"
   >
     <!-- 左侧价值色条 -->
@@ -95,7 +123,15 @@ const actionLoading = computed(
       :style="{ backgroundColor: barColor }"
     />
 
-    <div class="flex items-center gap-4 px-4 py-3">
+    <div class="flex items-center gap-3 px-4 py-3">
+      <!-- 批量模式：checkbox -->
+      <div v-if="selectable" class="shrink-0" @click.stop>
+        <n-checkbox
+          :checked="selected"
+          @update:checked="emit('update:selected', session.id, $event)"
+        />
+      </div>
+
       <!-- 左区：时间 + 项目名 -->
       <div class="w-44 shrink-0 min-w-0">
         <div class="text-[11px] text-neutral-400 font-mono tabular-nums">
@@ -111,12 +147,16 @@ const actionLoading = computed(
             {{ session.projectName || session.projectPath || '未命名项目' }}
           </span>
         </div>
+        <!-- 消息数 + 大小 -->
         <div class="text-[11px] text-neutral-400 mt-0.5 flex items-center gap-2">
           <span class="flex items-center gap-0.5">
             <span class="i-lucide-message-circle w-3 h-3" />
-            {{ session.messageCount }} 条消息
+            {{ session.messageCount }} 条
           </span>
-          <span class="truncate max-w-20" :title="session.sessionId">{{ session.sessionId.slice(0, 8) }}…</span>
+          <span class="flex items-center gap-0.5">
+            <span class="i-lucide-hard-drive w-3 h-3" />
+            {{ formatSize(session.rawSizeBytes) }}
+          </span>
         </div>
       </div>
 
@@ -143,7 +183,7 @@ const actionLoading = computed(
       </div>
 
       <!-- 右区：操作按钮（阻止冒泡，不触发整行跳转） -->
-      <div class="shrink-0" @click.stop>
+      <div v-if="!selectable" class="shrink-0" @click.stop>
         <n-button
           :type="session.cardId ? 'default' : 'primary'"
           size="small"
@@ -154,10 +194,10 @@ const actionLoading = computed(
           <span class="inline-flex items-center gap-1.5">
             <span
               v-if="!actionLoading"
-              :class="session.cardId ? 'i-lucide-book-open' : 'i-lucide-sparkles'"
+              :class="session.cardId ? 'i-lucide-book-open' : (session.status === 'analyzed' ? 'i-lucide-refresh-cw' : 'i-lucide-sparkles')"
               class="w-3.5 h-3.5"
             />
-            {{ actionLoading ? '分析中…' : (session.cardId ? '查看笔记' : '分析') }}
+            {{ actionLoading ? '分析中…' : (session.cardId ? '查看笔记' : (session.status === 'analyzed' ? '重新分析' : '分析')) }}
           </span>
         </n-button>
       </div>
