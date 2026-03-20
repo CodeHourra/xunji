@@ -926,7 +926,7 @@ tools:
 |------|------|------|
 | 客户端框架 | **Tauri 2.0** | 轻量跨平台，macOS/Windows/Linux，包体小 |
 | 前端 UI | **Vue 3 + TypeScript** | Composition API 简洁，对中文开发者友好，vibe coding 友好 |
-| UI 组件库 | **Radix Vue + UnoCSS** | Vue 生态下的高质量组件库，可定制 |
+| UI 组件库 | **Naive UI + UnoCSS** | Vue 生态下开箱即用的高质量组件库，内置主题系统，组件丰富 |
 | 后端逻辑 | **Rust（Tauri 内核）** | 文件操作、SQLite、性能 |
 | AI 调用 | **Python sidecar** | 大模型 API 调用、向量嵌入，Python 生态更成熟 |
 | 数据库 | **SQLite（rusqlite）** | 本地轻量，无需部署 |
