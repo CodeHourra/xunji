@@ -40,9 +40,33 @@ function displayContent(id: string, content: string) {
   return content.slice(0, COLLAPSE_THRESHOLD) + '…'
 }
 
-/** 判断是否为工具消息（tool_use / tool_result） */
-function isToolMessage(role: string) {
-  return role === 'tool'
+/**
+ * 判断是否为工具消息。
+ *
+ * 优先看 role === 'tool'（新数据由采集器标记），
+ * 兼容旧数据：role 为 "user" 但内容仅由 [Tool Result: ...] 组成。
+ */
+const TOOL_RESULT_PATTERN = /^\s*(\[Tool Result:[^\]]*\]\s*)+$/
+
+function isToolMessage(role: string, content: string) {
+  if (role === 'tool') return true
+  if (role === 'user' && TOOL_RESULT_PATTERN.test(content)) return true
+  return false
+}
+
+/**
+ * 判断是否为工具调用摘要（assistant 消息中仅包含 [Tool: xxx]）
+ */
+const TOOL_USE_PATTERN = /^\s*(\[Tool:\s*\w+\]\s*)+$/
+
+function isToolUseMessage(role: string, content: string) {
+  return role === 'assistant' && TOOL_USE_PATTERN.test(content)
+}
+
+/** 从 [Tool: Bash] 格式中提取工具名 */
+function extractToolName(content: string): string {
+  const match = content.match(/\[Tool:\s*(\w+)\]/)
+  return match ? match[1] : '工具'
 }
 </script>
 
@@ -52,8 +76,8 @@ function isToolMessage(role: string) {
       v-for="m in bubbles"
       :key="m.id"
     >
-      <!-- ─── 工具消息：紧凑折叠样式 ─── -->
-      <div v-if="isToolMessage(m.role)" class="flex justify-center">
+      <!-- ─── 工具结果消息：紧凑折叠样式 ─── -->
+      <div v-if="isToolMessage(m.role, m.rest)" class="flex justify-center">
         <details class="w-full max-w-[85%]">
           <summary
             class="cursor-pointer text-[11px] text-neutral-400 dark:text-neutral-500
@@ -71,6 +95,14 @@ function isToolMessage(role: string) {
                    max-h-48 overflow-y-auto"
           >{{ m.rest }}</pre>
         </details>
+      </div>
+
+      <!-- ─── 工具调用摘要：单行紧凑样式 ─── -->
+      <div v-else-if="isToolUseMessage(m.role, m.rest)" class="flex justify-center">
+        <div class="flex items-center gap-1.5 py-1 px-3 text-[11px] text-neutral-400 dark:text-neutral-500">
+          <span class="i-lucide-play w-3 h-3 opacity-50" />
+          <span>调用 <span class="font-mono font-medium text-neutral-500 dark:text-neutral-400">{{ extractToolName(m.rest) }}</span></span>
+        </div>
       </div>
 
       <!-- ─── 用户 / AI 消息：对话气泡样式 ─── -->
