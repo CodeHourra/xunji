@@ -1,0 +1,55 @@
+# 踩坑：Tool Result 内容含特殊字符导致正则匹配失败
+
+## 问题描述
+
+修复了 tool_result 角色识别后，部分 `[Tool Result: ...]` 消息仍然被渲染为用户气泡。
+具体表现：内容含 JSON 的 `]` 字符或多行 Markdown 时，正则匹配失败。
+
+## 根因
+
+### 第一版正则（`[^\]]*` 太严格）
+
+```javascript
+const TOOL_RESULT_PATTERN = /^\s*(\[Tool Result:[^\]]*\]\s*)+$/
+```
+
+`[^\]]*` 要求 `[Tool Result:` 和 `]` 之间不能包含 `]` 字符，但实际 Tool Result 内容中经常包含：
+
+```
+[Tool Result:     1→{
+    2→  "name": "xunji",
+    4→  "workspaces": [      ← 这个 ] 导致正则提前结束
+    5→    "apps/desktop",
+```
+
+### 第二版分段检测（`\n\n` 分段会误切）
+
+```javascript
+const segments = trimmed.split(/\n\n+/).filter(s => s.trim())
+return segments.every(s => s.trim().startsWith('[Tool Result:'))
+```
+
+Tool Result 的内容本身包含 `\n\n`（如 Markdown 段落），分段后后续段落不以 `[Tool Result:` 开头，导致误判为非工具消息。
+
+## 最终方案
+
+**只检测开头**——采集器生成的纯 tool_result 消息，内容一定以 `[Tool Result:` 开头：
+
+```typescript
+function messageType(role: string, content: string) {
+  const trimmed = content.trim()
+  if (role === 'tool') return 'tool-result'
+  if (role === 'user' && trimmed.startsWith('[Tool Result:')) return 'tool-result'
+  // ...
+}
+```
+
+## 教训
+
+1. **对 LLM/工具生成的内容，不要用精确正则匹配**：内容千变万化，越精确越容易漏
+2. **前缀检测比完整模式匹配可靠**：只要确保采集器生成的格式一致，检测开头即可
+3. **分段逻辑要考虑内容本身的分隔符**：`\n\n` 在 Markdown 中是常见分隔，不能作为消息边界
+
+## 相关文件
+
+- `apps/desktop/src/components/ChatReplay.vue` — messageType() 函数
