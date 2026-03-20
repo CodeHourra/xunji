@@ -25,6 +25,7 @@ pub struct Source {
 
 /// AI 对话会话完整信息
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Session {
     /// 数据库主键 (UUID v4)
     pub id: String,
@@ -62,6 +63,7 @@ pub struct Session {
 
 /// 会话列表轻量版（不含 hash、raw_path 等详情字段）
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SessionSummary {
     pub id: String,
     pub source_id: String,
@@ -71,15 +73,22 @@ pub struct SessionSummary {
     pub project_name: Option<String>,
     pub message_count: i64,
     pub status: String,
+    /// 价值评估结果（列表展示色条 / Badge 用，未分析时为 null）
+    #[serde(default)]
+    pub value: Option<String>,
     pub updated_at: String,
     pub has_updates: bool,
     pub created_at: String,
+    /// 该会话下最新一张知识卡片的 ID（无卡片时为 null，供列表「查看笔记」跳转）
+    #[serde(default)]
+    pub card_id: Option<String>,
 }
 
 // ─────────────────────────────── 消息 ─────────────────────────────────
 
 /// 单条对话消息
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Message {
     pub id: String,
     /// 所属会话的数据库主键
@@ -107,6 +116,7 @@ pub struct Message {
 
 /// LLM 提炼的知识卡片完整信息
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Card {
     pub id: String,
     /// 来源会话的数据库主键
@@ -149,6 +159,7 @@ pub struct Card {
 
 /// 卡片列表轻量版（不含 note、memory、skill 等大字段）
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CardSummary {
     pub id: String,
     pub session_id: String,
@@ -261,6 +272,7 @@ pub struct NewMessage {
 
 /// 分页查询结果的通用封装
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PaginatedResult<T> {
     pub items: Vec<T>,
     /// 满足筛选条件的总记录数（不受分页限制）
@@ -275,12 +287,46 @@ pub struct PaginatedResult<T> {
 pub struct SessionFilters {
     /// 按数据源 ID 筛选
     pub source: Option<String>,
-    /// 按项目名称或路径筛选
+    /// 按来源主机筛选（目录树第二层）
+    pub host: Option<String>,
+    /// 按项目名称或路径筛选（目录树第三层）
     pub project: Option<String>,
     /// 按分析状态筛选: pending | analyzing | analyzed | error
     pub status: Option<String>,
     /// 全文搜索关键词（v0.2 实现）
     pub search: Option<String>,
+}
+
+/// 会话按 source → host → project 分组统计，用于侧栏目录树
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionGroupCount {
+    /// 数据源 ID（如 "claude-code"）
+    pub source_id: String,
+    /// 来源主机（如 "localhost"）
+    pub source_host: String,
+    /// 项目名称（无项目时为 null）
+    pub project_name: Option<String>,
+    /// 该分组下的会话数量
+    pub count: i64,
+}
+
+/// 标签及其关联卡片数量，用于侧栏标签筛选
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TagCount {
+    /// 标签名称
+    pub name: String,
+    /// 使用该标签的卡片数量
+    pub count: i64,
+}
+
+/// 知识卡片类型及数量统计，用于侧栏类型筛选
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TypeCount {
+    /// 类型名称（如 debug、architecture 等）
+    pub name: String,
+    /// 该类型的卡片数量
+    pub count: i64,
 }
 
 /// 知识卡片筛选条件
