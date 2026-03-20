@@ -1,0 +1,97 @@
+/**
+ * OpenAI-compatible API Provider —— 通过 HTTP 调用 LLM 做知识提炼。
+ *
+ * 兼容所有支持 OpenAI Chat Completions 接口的服务：
+ * OpenAI、DeepSeek、Moonshot、Ollama、Azure OpenAI 等。
+ */
+
+import OpenAI from 'openai'
+
+export interface ApiProviderConfig {
+  /** API 提供商标识（仅用于日志） */
+  provider: string
+  /** API 基础 URL（如 https://api.deepseek.com/v1） */
+  baseUrl: string
+  /** API 密钥 */
+  apiKey: string
+  /** 模型名称（如 gpt-4o-mini、deepseek-chat） */
+  model: string
+  /** 请求超时（毫秒） */
+  timeoutMs?: number
+}
+
+export interface DistillResult {
+  /** LLM 返回的原始文本 */
+  content: string
+  /** 本次请求消耗的 prompt tokens */
+  promptTokens: number
+  /** 本次请求消耗的 completion tokens */
+  completionTokens: number
+}
+
+export class ApiProvider {
+  private client: OpenAI
+  private model: string
+  private provider: string
+
+  constructor(config: ApiProviderConfig) {
+    this.client = new OpenAI({
+      baseURL: config.baseUrl,
+      apiKey: config.apiKey,
+      timeout: config.timeoutMs ?? 120_000,
+    })
+    this.model = config.model
+    this.provider = config.provider
+  }
+
+  /**
+   * 调用 LLM 执行提炼。
+   * @param systemPrompt - 系统提示词（Prompt 模板）
+   * @param content - 经过前处理的对话内容
+   */
+  async distill(systemPrompt: string, content: string): Promise<DistillResult> {
+    console.error(
+      `[distiller] Calling ${this.provider}/${this.model}, content length: ${content.length}`,
+    )
+
+    const response = await this.client.chat.completions.create({
+      model: this.model,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content },
+      ],
+      temperature: 0.3,
+    })
+
+    const text = response.choices[0]?.message?.content ?? ''
+    const usage = response.usage
+
+    console.error(
+      `[distiller] Response: ${text.length} chars, tokens: ${usage?.prompt_tokens ?? 0}/${usage?.completion_tokens ?? 0}`,
+    )
+
+    return {
+      content: text,
+      promptTokens: usage?.prompt_tokens ?? 0,
+      completionTokens: usage?.completion_tokens ?? 0,
+    }
+  }
+
+  /** 检查 API 是否可用（发送一个简短的测试请求） */
+  async isAvailable(): Promise<boolean> {
+    try {
+      await this.client.chat.completions.create({
+        model: this.model,
+        messages: [{ role: 'user', content: 'ping' }],
+        max_tokens: 5,
+      })
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  getInfo() {
+    return { provider: this.provider, model: this.model }
+  }
+}
