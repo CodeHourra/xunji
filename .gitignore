@@ -1,0 +1,38 @@
+# Rust
+target/
+Cargo.lock
+
+# Node
+node_modules/
+dist/
+.nuxt/
+
+# Tauri
+apps/desktop/src-tauri/target/
+
+# Bun
+packages/sidecar/dist/
+packages/mcp-server/dist/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+.agents/
+skills-lock.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build
+*.exe
+*.dmg
+*.AppImage
+
+# Env
+.env
+.env.local
+
+# XunJi runtime data
+.xunji/
