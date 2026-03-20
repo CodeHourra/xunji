@@ -5,47 +5,14 @@ use uuid::Uuid;
 use super::db::{Database, DbError, DbResult};
 use super::models::*;
 
-pub(super) fn card_filter_where(filters: &CardFilters) -> (String, Vec<String>) {
-    let mut conds: Vec<String> = Vec::new();
-    let mut p: Vec<String> = Vec::new();
+// ─────────────────────────── 共享列定义与行映射 ────────────────────────
+//
+// cards.rs 和 search.rs 共用这些函数，避免列顺序不一致导致的映射错误。
 
-    if let Some(ref t) = filters.card_type {
-        conds.push(r#"c."type" = ?"#.to_string());
-        p.push(t.clone());
-    }
-    if let Some(ref v) = filters.value {
-        conds.push("c.value = ?".to_string());
-        p.push(v.clone());
-    }
-    if let Some(ref tags) = filters.tags {
-        if !tags.is_empty() {
-            let mut seen = std::collections::HashSet::new();
-            let unique: Vec<String> = tags
-                .iter()
-                .filter(|t| seen.insert((*t).clone()))
-                .cloned()
-                .collect();
-            let n = unique.len();
-            let ph = (0..n).map(|_| "?").collect::<Vec<_>>().join(",");
-            conds.push(format!(
-                "c.id IN (SELECT ct.card_id FROM card_tags ct \
-                 INNER JOIN tags t ON ct.tag_id = t.id \
-                 WHERE t.name IN ({}) \
-                 GROUP BY ct.card_id HAVING COUNT(DISTINCT t.name) = {})",
-                ph, n
-            ));
-            p.extend(unique);
-        }
-    }
+pub(super) const CARD_SUMMARY_COLUMNS: &str =
+    r#"c.id, c.session_id, c.title, c."type", c.value, c.summary, c.category_id, c.source_name, c.project_name, c.created_at, c.updated_at"#;
 
-    let where_sql = if conds.is_empty() {
-        String::new()
-    } else {
-        format!(" WHERE {}", conds.join(" AND "))
-    };
-    (where_sql, p)
-}
-
+/// 从查询行映射 CardSummary（列顺序需与 CARD_SUMMARY_COLUMNS 一致）
 pub(super) fn card_summary_from_row(row: &Row<'_>) -> rusqlite::Result<CardSummary> {
     Ok(CardSummary {
         id: row.get(0)?,
@@ -86,7 +53,63 @@ fn card_from_row(row: &Row<'_>) -> rusqlite::Result<Card> {
     })
 }
 
+// ─────────────────────────── 动态筛选条件构建 ─────────────────────────
+//
+// 被 list_cards 和 search_cards 共用。
+//
+// 标签筛选使用 AND 语义（必须同时包含所有指定标签）：
+//   SELECT card_id FROM card_tags
+//   JOIN tags ... WHERE name IN (...)
+//   GROUP BY card_id HAVING COUNT(DISTINCT name) = N
+
+/// 根据 CardFilters 构建 WHERE 子句和参数列表
+pub(super) fn build_card_where(filters: &CardFilters) -> (String, Vec<String>) {
+    let mut conds: Vec<String> = Vec::new();
+    let mut params: Vec<String> = Vec::new();
+
+    if let Some(ref t) = filters.card_type {
+        conds.push(r#"c."type" = ?"#.to_string());
+        params.push(t.clone());
+    }
+    if let Some(ref v) = filters.value {
+        conds.push("c.value = ?".to_string());
+        params.push(v.clone());
+    }
+    if let Some(ref tags) = filters.tags {
+        if !tags.is_empty() {
+            let unique: Vec<&String> = {
+                let mut seen = std::collections::HashSet::new();
+                tags.iter().filter(|t| seen.insert(*t)).collect()
+            };
+            let n = unique.len();
+            let placeholders = vec!["?"; n].join(",");
+            conds.push(format!(
+                "c.id IN (\
+                    SELECT ct.card_id FROM card_tags ct \
+                    INNER JOIN tags t ON ct.tag_id = t.id \
+                    WHERE t.name IN ({placeholders}) \
+                    GROUP BY ct.card_id HAVING COUNT(DISTINCT t.name) = {n}\
+                )"
+            ));
+            params.extend(unique.into_iter().cloned());
+        }
+    }
+
+    let where_sql = if conds.is_empty() {
+        String::new()
+    } else {
+        format!(" WHERE {}", conds.join(" AND "))
+    };
+    (where_sql, params)
+}
+
+// ─────────────────────────── Database 方法 ────────────────────────────
+
 impl Database {
+    /// 创建知识卡片。在单个事务内完成：
+    ///   1. 写入 cards 表
+    ///   2. 创建/关联标签（tags + card_tags）
+    ///   3. 同步 FTS5 全文索引
     pub fn insert_card(
         &self,
         session_id: &str,
@@ -117,23 +140,13 @@ impl Database {
                 created_at, updated_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, ?, ?, ?, NULL, ?, ?)",
             params![
-                &id,
-                session_id,
-                title,
-                card_type,
-                value,
-                summary,
-                note,
-                source_name,
-                project_name,
-                prompt_tokens,
-                completion_tokens,
-                cost_yuan,
-                &now,
-                &now,
+                &id, session_id, title, card_type, value, summary, note,
+                source_name, project_name, prompt_tokens, completion_tokens, cost_yuan,
+                &now, &now,
             ],
         )?;
 
+        // 标签处理: INSERT OR IGNORE 保证幂等 → 查回 id → 关联
         for tag_name in tags {
             let tag_id = Uuid::new_v4().to_string();
             tx.execute(
@@ -151,6 +164,7 @@ impl Database {
             )?;
         }
 
+        // 手动同步 FTS5 索引（因为 content='cards' 需要外部触发）
         tx.execute(
             "INSERT INTO cards_fts(rowid, title, summary, note, tags) \
              SELECT rowid, title, summary, note, ? FROM cards WHERE id = ?",
@@ -158,10 +172,11 @@ impl Database {
         )?;
 
         tx.commit()?;
-        log::info!("Created card: id={}, title={:?}, tags={}", id, title, tags_joined);
+        log::info!("创建卡片: id={}, title={:?}, value={:?}, tags=[{}]", id, title, value, tags_joined);
         Ok(id)
     }
 
+    /// 获取卡片完整信息（含关联标签）
     pub fn get_card(&self, id: &str) -> DbResult<Card> {
         let conn = self.conn();
         let mut card = conn
@@ -177,23 +192,27 @@ impl Database {
             .optional()?
             .ok_or_else(|| DbError::NotFound(format!("card {}", id)))?;
 
+        // 补充填充标签
         let mut stmt = conn.prepare(
             "SELECT t.name FROM tags t \
              INNER JOIN card_tags ct ON t.id = ct.tag_id \
              WHERE ct.card_id = ? ORDER BY t.name",
         )?;
-        let tag_iter = stmt.query_map(params![id], |row| row.get::<_, String>(0))?;
-        card.tags = tag_iter.filter_map(|r| r.ok()).collect();
+        card.tags = stmt
+            .query_map(params![id], |row| row.get::<_, String>(0))?
+            .filter_map(|r| r.ok())
+            .collect();
         Ok(card)
     }
 
+    /// 分页查询知识卡片列表，支持按类型/价值/标签筛选
     pub fn list_cards(
         &self,
         filters: &CardFilters,
         page: u32,
         page_size: u32,
     ) -> DbResult<PaginatedResult<CardSummary>> {
-        let (where_sql, filter_params) = card_filter_where(filters);
+        let (where_sql, filter_params) = build_card_where(filters);
         let page = page.max(1);
         let limit = page_size as i64;
         let offset = (page - 1) as i64 * limit;
@@ -208,22 +227,15 @@ impl Database {
         )?;
 
         let select_sql = format!(
-            "SELECT c.id, c.session_id, c.title, c.\"type\", c.value, c.summary, \
-             c.category_id, c.source_name, c.project_name, c.created_at, c.updated_at \
-             FROM cards c{} \
-             ORDER BY c.created_at DESC LIMIT {} OFFSET {}",
-            where_sql, limit, offset
+            "SELECT {} FROM cards c{} ORDER BY c.created_at DESC LIMIT {} OFFSET {}",
+            CARD_SUMMARY_COLUMNS, where_sql, limit, offset
         );
-
         let mut stmt = conn.prepare(&select_sql)?;
-        let rows = stmt.query_map(rusqlite::params_from_iter(filter_params.iter()), |r| {
-            card_summary_from_row(r)
-        })?;
-
-        let mut items = Vec::new();
-        for row in rows {
-            items.push(row?);
-        }
+        let items = stmt
+            .query_map(rusqlite::params_from_iter(filter_params.iter()), |r| {
+                card_summary_from_row(r)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         Ok(PaginatedResult {
             items,
@@ -233,33 +245,31 @@ impl Database {
         })
     }
 
+    /// 删除卡片（级联清理关联表和 FTS 索引）
     pub fn delete_card(&self, id: &str) -> DbResult<()> {
         let mut conn = self.conn();
         let tx = conn.transaction()?;
 
-        tx.execute(
-            "DELETE FROM card_tags WHERE card_id = ?",
-            params![id],
-        )?;
+        tx.execute("DELETE FROM card_tags WHERE card_id = ?", params![id])?;
         tx.execute(
             "DELETE FROM cards_fts WHERE rowid = (SELECT rowid FROM cards WHERE id = ?)",
             params![id],
         )?;
         tx.execute("DELETE FROM cards WHERE id = ?", params![id])?;
         tx.commit()?;
-        log::info!("Deleted card: id={}", id);
+        log::info!("删除卡片: id={}", id);
         Ok(())
     }
 
     pub fn update_card_feedback(&self, id: &str, feedback: &str) -> DbResult<()> {
-        let conn = self.conn();
-        let n = conn.execute(
+        let n = self.conn().execute(
             "UPDATE cards SET feedback = ? WHERE id = ?",
             params![feedback, id],
         )?;
         if n == 0 {
             return Err(DbError::NotFound(format!("card {}", id)));
         }
+        log::debug!("卡片反馈更新: id={}, feedback={}", id, feedback);
         Ok(())
     }
 }

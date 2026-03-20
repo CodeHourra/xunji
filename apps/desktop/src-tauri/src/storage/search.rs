@@ -1,50 +1,49 @@
-use super::cards::{card_filter_where, card_summary_from_row};
+use super::cards::{build_card_where, card_summary_from_row, CARD_SUMMARY_COLUMNS};
 use super::db::{Database, DbResult};
 use super::models::*;
 
 impl Database {
+    /// FTS5 全文搜索知识卡片，支持叠加类型/价值/标签筛选。
+    ///
+    /// 使用 BM25 算法排序，最多返回 50 条结果。
+    /// 空查询直接返回空列表。
     pub fn search_cards(&self, query: &str, filters: &CardFilters) -> DbResult<Vec<CardSummary>> {
         let q = query.trim();
         if q.is_empty() {
             return Ok(Vec::new());
         }
 
-        let (where_sql, filter_params) = card_filter_where(filters);
+        // 将 FTS MATCH 条件与 card_filter 的常规条件合并
+        let (where_sql, filter_params) = build_card_where(filters);
         let where_clause = if where_sql.is_empty() {
-            " WHERE fts MATCH ? ".to_string()
+            " WHERE fts MATCH ?".to_string()
         } else {
-            let rest = where_sql
-                .strip_prefix(" WHERE ")
-                .unwrap_or(where_sql.as_str());
+            let rest = where_sql.strip_prefix(" WHERE ").unwrap_or(&where_sql);
             format!(" WHERE fts MATCH ? AND ({})", rest)
         };
 
         let sql = format!(
-            "SELECT c.id, c.session_id, c.title, c.\"type\", c.value, c.summary, \
-             c.category_id, c.source_name, c.project_name, c.created_at, c.updated_at \
-             FROM cards c \
+            "SELECT {cols} FROM cards c \
              JOIN cards_fts fts ON c.rowid = fts.rowid \
-             {} \
-             ORDER BY bm25(cards_fts) \
-             LIMIT 50",
-            where_clause
+             {where_clause} \
+             ORDER BY bm25(cards_fts) LIMIT 50",
+            cols = CARD_SUMMARY_COLUMNS,
         );
 
+        // FTS MATCH 参数在最前面，后面跟 filter 参数
         let mut params_vec: Vec<String> = Vec::with_capacity(1 + filter_params.len());
         params_vec.push(q.to_string());
         params_vec.extend(filter_params);
 
         let conn = self.conn();
         let mut stmt = conn.prepare(&sql)?;
-        let rows = stmt.query_map(rusqlite::params_from_iter(params_vec.iter()), |r| {
-            card_summary_from_row(r)
-        })?;
+        let results: Vec<CardSummary> = stmt
+            .query_map(rusqlite::params_from_iter(params_vec.iter()), |r| {
+                card_summary_from_row(r)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
-        let mut out = Vec::new();
-        for row in rows {
-            out.push(row?);
-        }
-        log::debug!("Search query={:?} returned {} results", q, out.len());
-        Ok(out)
+        log::debug!("全文搜索: query={:?}, 结果数={}", q, results.len());
+        Ok(results)
     }
 }

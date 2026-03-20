@@ -18,19 +18,25 @@ pub enum DbError {
 
 pub type DbResult<T> = Result<T, DbError>;
 
+/// 应用数据库，封装 SQLite 连接。
+///
+/// 使用 Mutex 保证多线程安全（Tauri 的 invoke 在异步线程中调用）。
+/// 默认路径: ~/.xunji/db/xunji.db
 pub struct Database {
     conn: Mutex<Connection>,
     path: PathBuf,
 }
 
 impl Database {
+    /// 打开指定路径的数据库，自动创建目录、启用 WAL 模式并执行迁移。
     pub fn open(path: &Path) -> DbResult<Self> {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
 
-        log::info!("Opening database at {}", path.display());
+        log::info!("打开数据库: {}", path.display());
         let conn = Connection::open(path)?;
+        // WAL 模式允许 MCP Server 只读并发访问；busy_timeout 避免写锁竞争时立即失败
         conn.execute_batch(
             "PRAGMA journal_mode=WAL;
              PRAGMA foreign_keys=ON;
@@ -42,18 +48,20 @@ impl Database {
             path: path.to_path_buf(),
         };
         db.migrate()?;
-        log::info!("Database ready");
+        log::info!("数据库就绪");
         Ok(db)
     }
 
+    /// 使用默认路径 ~/.xunji/db/xunji.db 打开数据库
     pub fn open_default() -> DbResult<Self> {
-        let base = dirs::home_dir().expect("cannot determine home directory");
+        let base = dirs::home_dir().expect("无法获取用户主目录");
         let path = base.join(".xunji").join("db").join("xunji.db");
         Self::open(&path)
     }
 
+    /// 获取数据库连接的 MutexGuard（阻塞获取锁）
     pub fn conn(&self) -> std::sync::MutexGuard<'_, Connection> {
-        self.conn.lock().expect("database mutex poisoned")
+        self.conn.lock().expect("数据库 Mutex 已中毒")
     }
 
     pub fn path(&self) -> &Path {

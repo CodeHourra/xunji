@@ -2,8 +2,17 @@ use rusqlite::Connection;
 
 use super::db::DbResult;
 
+/// 数据库 Schema 迁移入口。
+///
+/// 通过 PRAGMA user_version 追踪当前版本号，
+/// 按版本递增依次执行对应的迁移函数。
+///
+///   user_version=0 → 执行 migrate_v1 → user_version=1
+///   user_version=1 → 执行 migrate_v2 → user_version=2 (未来)
+///
 pub fn run(conn: &Connection) -> DbResult<()> {
     let version: u32 = conn.pragma_query_value(None, "user_version", |row| row.get(0))?;
+    log::debug!("当前数据库版本: v{}", version);
 
     if version < 1 {
         migrate_v1(conn)?;
@@ -13,7 +22,7 @@ pub fn run(conn: &Connection) -> DbResult<()> {
 }
 
 fn migrate_v1(conn: &Connection) -> DbResult<()> {
-    log::info!("Running database migration v1...");
+    log::info!("执行数据库迁移 v1...");
 
     conn.execute_batch(
         "
@@ -150,6 +159,6 @@ fn migrate_v1(conn: &Connection) -> DbResult<()> {
         ",
     )?;
 
-    log::info!("Database migration v1 complete.");
+    log::info!("数据库迁移 v1 完成");
     Ok(())
 }
