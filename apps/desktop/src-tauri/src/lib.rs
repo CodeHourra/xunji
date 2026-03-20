@@ -16,7 +16,6 @@ pub fn run() {
     env_logger::init();
 
     let db = Database::open_default().expect("failed to initialize database");
-    log::info!("Database opened at {:?}", db.path());
 
     let state = AppState { db: Arc::new(db) };
 

@@ -1,5 +1,3 @@
-//! SQLite 行与 API 用的数据模型（与 `migrations` 中表结构对应）。
-
 use serde::{Serialize, Deserialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -80,7 +78,7 @@ pub struct Card {
     pub feedback: Option<String>,
     pub created_at: String,
     pub updated_at: String,
-    /// 关联标签名（card_tags / tags）
+    /// Populated from card_tags JOIN, not stored in cards table directly.
     #[serde(default)]
     pub tags: Vec<String>,
 }

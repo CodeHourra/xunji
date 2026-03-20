@@ -158,6 +158,7 @@ impl Database {
         )?;
 
         tx.commit()?;
+        log::info!("Created card: id={}, title={:?}, tags={}", id, title, tags_joined);
         Ok(id)
     }
 
@@ -246,6 +247,7 @@ impl Database {
         )?;
         tx.execute("DELETE FROM cards WHERE id = ?", params![id])?;
         tx.commit()?;
+        log::info!("Deleted card: id={}", id);
         Ok(())
     }
 

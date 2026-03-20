@@ -29,6 +29,7 @@ impl Database {
             fs::create_dir_all(parent)?;
         }
 
+        log::info!("Opening database at {}", path.display());
         let conn = Connection::open(path)?;
         conn.execute_batch(
             "PRAGMA journal_mode=WAL;
@@ -41,6 +42,7 @@ impl Database {
             path: path.to_path_buf(),
         };
         db.migrate()?;
+        log::info!("Database ready");
         Ok(db)
     }
 

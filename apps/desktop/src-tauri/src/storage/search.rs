@@ -44,6 +44,7 @@ impl Database {
         for row in rows {
             out.push(row?);
         }
+        log::debug!("Search query={:?} returned {} results", q, out.len());
         Ok(out)
     }
 }

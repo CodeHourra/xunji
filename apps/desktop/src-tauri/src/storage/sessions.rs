@@ -46,13 +46,11 @@ impl Database {
                 params![session_id, source_host],
                 |row| row.get(0),
             )?;
-            log::debug!(
-                "insert_session ignored duplicate session_id={} source_host={}, returning existing id",
-                session_id,
-                source_host
-            );
+            log::debug!("Session already exists: session_id={}, returning id={}", session_id, existing);
             Ok(existing)
         } else {
+            log::info!("Imported session: source={}, project={:?}, messages={}",
+                source_id, project_name, message_count);
             Ok(id)
         }
     }
@@ -85,6 +83,7 @@ impl Database {
             )?;
         }
         tx.commit()?;
+        log::debug!("Inserted {} messages for session {}", messages.len(), session_db_id);
         Ok(())
     }
 
@@ -251,6 +250,7 @@ impl Database {
         if n == 0 {
             return Err(DbError::NotFound(id.to_string()));
         }
+        log::info!("Session {} status -> {}, value -> {:?}", id, status, value);
         Ok(())
     }
 
