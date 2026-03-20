@@ -1,32 +1,52 @@
 <script setup lang="ts">
+import { NConfigProvider, darkTheme, zhCN, dateZhCN } from 'naive-ui'
+import AppLayout from './components/AppLayout.vue'
+import { useUiStore } from './stores/ui'
+
+const ui = useUiStore()
 </script>
 
 <template>
-  <div class="h-screen flex flex-col items-center justify-center bg-neutral-50 dark:bg-neutral-900">
-    <h1 class="text-3xl font-bold text-neutral-800 dark:text-neutral-100">
-      寻迹 XunJi
-    </h1>
-    <p class="mt-2 text-neutral-500">
-      AI 编程知识管理平台
-    </p>
-    <div class="mt-4 flex gap-2">
-      <span class="px-3 py-1 rounded-full text-sm bg-value-high text-white">high</span>
-      <span class="px-3 py-1 rounded-full text-sm bg-value-medium text-white">medium</span>
-      <span class="px-3 py-1 rounded-full text-sm bg-value-low text-neutral-600">low</span>
-    </div>
-  </div>
+  <!-- NConfigProvider 为 Naive UI 组件提供全局主题 + 中文 locale -->
+  <n-config-provider :theme="ui.darkMode ? darkTheme : undefined" :locale="zhCN" :date-locale="dateZhCN">
+    <AppLayout />
+  </n-config-provider>
 </template>
 
 <style>
 :root {
-  font-family: Inter, Avenir, Helvetica, Arial, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', Helvetica, Arial, sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  --brand-500: #10b981;
+  --brand-600: #059669;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
 }
 
 body {
   margin: 0;
+}
+
+/* Webkit 滚动条 */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background-color: rgba(156, 163, 175, 0.25);
+  border-radius: 999px;
+}
+.dark ::-webkit-scrollbar-thumb {
+  background-color: rgba(75, 85, 99, 0.35);
 }
 </style>

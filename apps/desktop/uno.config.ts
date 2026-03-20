@@ -7,14 +7,30 @@ const config: UserConfig = {
     presetUno(),
     presetIcons({
       scale: 1.2,
+      extraProperties: {
+        'display': 'inline-block',
+        'vertical-align': 'middle',
+      },
     }),
   ],
   theme: {
     colors: {
+      brand: {
+        50: '#ecfdf5',
+        100: '#d1fae5',
+        200: '#a7f3d0',
+        300: '#6ee7b7',
+        400: '#34d399',
+        500: '#10b981',
+        600: '#059669',
+        700: '#047857',
+        800: '#065f46',
+        900: '#064e3b',
+      },
       value: {
-        high: '#22c55e',
+        high: '#10b981',
         medium: '#f59e0b',
-        low: '#d1d5db',
+        low: '#94a3b8',
       },
     },
   },

@@ -12,13 +12,18 @@
   "dependencies": {
     "@tauri-apps/api": "^2",
     "@vueuse/core": "^14.2.1",
+    "highlight.js": "^11.11.1",
+    "marked": "^15.0.7",
+    "naive-ui": "^2.44.1",
     "pinia": "^3.0.4",
-    "radix-vue": "^1.9.17",
-    "vue": "^3.5"
+    "vue": "^3.5",
+    "vue-router": "^4.5.0"
   },
   "devDependencies": {
     "@iconify-json/lucide": "^1.2.98",
+    "@iconify/utils": "^3.1.0",
     "@tauri-apps/cli": "^2",
+    "@types/marked": "^6.0.0",
     "@unocss/core": "^66.6.7",
     "@unocss/preset-icons": "^66.6.7",
     "@unocss/preset-uno": "^66.6.7",

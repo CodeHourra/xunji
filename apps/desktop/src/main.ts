@@ -2,7 +2,21 @@ import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import 'virtual:uno.css'
 import App from './App.vue'
+import router from './router'
+import { useUiStore } from './stores/ui'
 
 const app = createApp(App)
-app.use(createPinia())
+const pinia = createPinia()
+app.use(pinia)
+app.use(router)
+
+const ui = useUiStore()
+router.afterEach((to) => {
+  if (to.name === 'library') {
+    ui.activeTab = 'library'
+  } else {
+    ui.activeTab = 'sessions'
+  }
+})
+
 app.mount('#app')
