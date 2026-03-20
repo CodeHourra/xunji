@@ -7,9 +7,9 @@ import { useFiltersStore } from '../stores/filters'
 import { useSessionsStore } from '../stores/sessions'
 import { useSidebarStore } from '../stores/sidebar'
 
-// 品牌 SVG 图标（通过 Vite asset URL 导入）
-import claudeCodeIcon from '../assets/brands/claude-code.svg?url'
-import cursorIcon from '../assets/brands/cursor.svg?url'
+// 品牌图标（官方 logo，通过 Vite asset URL 导入）
+import claudeCodeIcon from '../assets/brands/claude-code.png?url'
+import cursorIcon from '../assets/brands/cursor.png?url'
 import codebuddyIcon from '../assets/brands/codebuddy.svg?url'
 
 const ui = useUiStore()
