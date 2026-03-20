@@ -1,0 +1,13 @@
+{
+  "name": "@xunji/mcp-server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun run src/index.ts",
+    "build": "bun build src/index.ts --compile --outfile dist/xunji-mcp"
+  },
+  "dependencies": {
+    "@xunji/shared": "workspace:*"
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "name": "@xunji/sidecar",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun run src/index.ts",
+    "build": "bun build src/index.ts --compile --outfile dist/xunji-sidecar"
+  },
+  "dependencies": {
+    "@xunji/shared": "workspace:*",
+    "openai": "^4"
+  }
+}
