@@ -25,6 +25,7 @@ const emit = defineEmits<{
       :title="card.title"
       :summary="card.summary"
       :tags="card.tags"
+      :tech-stack="card.techStack"
     />
     <MarkdownRenderer v-if="mode === 'note'" :source="card.note" />
     <slot v-else name="chat" />

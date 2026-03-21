@@ -166,21 +166,13 @@ const extraArgsStr = computed({
     @update:show="emit('update:show', $event)"
   >
     <!--
-      布局结构：
-        n-card 根元素 → flex column，限定 max-height: 80vh
-        .n-card__content（通过 :content-style）→ flex: 1 + min-height: 0 + overflow hidden
-        tab 内容区 → overflow-y: auto，真正负责滚动
+      布局：NCard 固定宽度 + max-height 限高；
+      tab pane 内层 div 各自负责 overflow-y: auto 滚动，
+      避免依赖多层 flex 链导致内容区塌缩。
     -->
     <n-card
-      style="width: 560px; max-height: 80vh; display: flex; flex-direction: column; overflow: hidden;"
-      :content-style="{
-        flex: '1 1 0',
-        minHeight: 0,
-        overflow: 'hidden',
-        display: 'flex',
-        flexDirection: 'column',
-        padding: 0,
-      }"
+      style="width: 580px; max-height: 80vh; overflow: hidden;"
+      :content-style="{ padding: 0, minHeight: '240px', overflow: 'hidden' }"
       title="设置"
       :bordered="false"
       size="huge"
@@ -194,27 +186,26 @@ const extraArgsStr = computed({
       </template>
 
       <!-- 加载中 -->
-      <div v-if="loading" class="flex justify-center py-12">
+      <div v-if="loading" class="flex items-center justify-center py-16">
         <n-spin size="large" />
       </div>
 
+      <!-- 加载失败 -->
+      <div v-else-if="errorMsg && !workingConfig" class="flex flex-col items-center gap-3 py-10 px-6">
+        <span class="i-lucide-alert-circle w-8 h-8 text-red-400" />
+        <p class="text-sm text-red-500 dark:text-red-400 text-center">{{ errorMsg }}</p>
+        <n-button size="small" @click="loadConfig">重新加载</n-button>
+      </div>
+
       <!--
-        NTabs 占据剩余高度，tab pane 内容区独立滚动。
-        NTabs 自身需要 flex: 1 + overflow hidden 才能把 pane 区限定在容器内。
+        workingConfig 就绪后渲染 tab 内容。
+        每个 tab pane 内部的 div 独立负责高度限制和滚动。
       -->
-      <div
-        v-else-if="workingConfig"
-        style="flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden;"
-      >
-        <n-tabs
-          type="line"
-          animated
-          style="flex: 1 1 0; min-height: 0; display: flex; flex-direction: column;"
-          :pane-style="{ flex: '1 1 0', minHeight: 0, overflowY: 'auto', overflowX: 'hidden', padding: '0 24px' }"
-        >
+      <div v-else-if="workingConfig">
+        <n-tabs type="line" animated style="padding: 0 24px">
           <!-- ── 提炼配置 Tab ── -->
           <n-tab-pane name="distiller" tab="提炼引擎">
-            <div class="pt-4 pb-4 space-y-4">
+            <div style="max-height: calc(70vh - 220px); overflow-y: auto; padding: 12px 0 16px;" class="space-y-4">
 
               <!-- 模式选择 -->
               <div class="flex items-center gap-3">
@@ -345,7 +336,7 @@ const extraArgsStr = computed({
 
           <!-- ── 数据源 Tab ── -->
           <n-tab-pane name="sources" tab="数据源">
-            <div class="pt-4 pb-4 space-y-2">
+            <div style="max-height: calc(70vh - 220px); overflow-y: auto; padding: 12px 0 16px;" class="space-y-2">
               <p class="text-xs text-neutral-500 dark:text-neutral-400 mb-3">
                 选择启用的 AI 编程工具对话记录来源，同步时只扫描已启用的数据源。
               </p>
@@ -384,8 +375,8 @@ const extraArgsStr = computed({
 
       <!-- 底部操作 区域不参与滚动，始终固定在底部 -->
       <template #footer>
-        <!-- 错误 / 成功提示 -->
-        <n-alert v-if="errorMsg" type="error" class="mb-3 !text-xs" :bordered="false">
+        <!-- 保存结果提示（仅在 workingConfig 已加载后才有意义） -->
+        <n-alert v-if="errorMsg && workingConfig" type="error" class="mb-3 !text-xs" :bordered="false">
           {{ errorMsg }}
         </n-alert>
         <n-alert v-if="successMsg" type="success" class="mb-3 !text-xs" :bordered="false">
