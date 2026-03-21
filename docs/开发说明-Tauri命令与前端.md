@@ -38,3 +38,10 @@
 - 搜索状态：`stores/search.ts`（Pinia，300ms debounce）
 
 依赖安装请在仓库根目录执行 **`bun install`**（workspace 使用 `workspace:` 协议，部分 npm 版本不兼容）。
+
+## 全局分析队列（Pinia）
+
+- **Store**：`stores/analysisQueue.ts` — `enqueue` / `cancel` / `clear`，内部**串行**调用 `distill_session`（与 Sidecar 单通道一致）。
+- **入口统一**：会话列表单条「分析」、批量「开始分析」、详情页「提炼笔记 / 重新分析」均通过 `enqueue` 入队。
+- **UI**：`components/AnalysisQueuePanel.vue` 挂在 `AppLayout`，任意页面可见进度、耗时、「停止排队」（未执行任务取消并恢复为 `pending`）。
+- **批量完成 Toast**：`SessionsView` 对批量入队的任务在 callbacks 中计数，全部结束后提示成功/失败条数。
