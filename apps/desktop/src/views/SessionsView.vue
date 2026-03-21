@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onActivated, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { NSpin, NEmpty, NButton, NCheckbox, NProgress } from 'naive-ui'
 import SessionToolbar from '../components/SessionToolbar.vue'
@@ -33,9 +33,9 @@ const batchRunning = ref(false)
 
 // ── Toast ────────────────────────────────────────────────────────────────────
 
-const toast = ref<{ msg: string; type: 'success' | 'error' } | null>(null)
+const toast = ref<{ msg: string; type: 'success' | 'error' | 'warning' } | null>(null)
 
-function showToast(msg: string, type: 'success' | 'error' = 'success') {
+function showToast(msg: string, type: 'success' | 'error' | 'warning' = 'success') {
   toast.value = { msg, type }
   setTimeout(() => { toast.value = null }, 4000)
 }
@@ -46,16 +46,29 @@ onMounted(() => {
   void sessions.loadPage()
 })
 
+// 从详情页返回列表时（keep-alive 场景），自动刷新以获取后端最新状态
+onActivated(() => {
+  void sessions.loadPage()
+})
+
 // ── 计算属性 ─────────────────────────────────────────────────────────────────
 
-/** 当前页中未分析（无卡片）的会话数量 */
+/**
+ * 判断会话是否"待分析"（可参与批量分析）。
+ * 已分析（含低价值 status=analyzed）和分析中的均不可选。
+ */
+function isPending(s: { cardId?: string | null; status: string }) {
+  return !s.cardId && s.status !== 'analyzing' && s.status !== 'analyzed'
+}
+
+/** 当前页中未分析（待分析）的会话数量 */
 const unanalyzedCount = computed(
-  () => sessions.items.filter((s) => !s.cardId && s.status !== 'analyzing').length,
+  () => sessions.items.filter(isPending).length,
 )
 
-/** 当前页可选（未分析）的会话列表 */
+/** 当前页可选（待分析）的会话列表 */
 const selectableItems = computed(() =>
-  sessions.items.filter((s) => !s.cardId && s.status !== 'analyzing'),
+  sessions.items.filter(isPending),
 )
 
 /** 是否全选（基于可选列表） */
@@ -82,19 +95,42 @@ async function onAnalyze(sessionId: string) {
   // 立即更新状态为 analyzing（乐观更新，提升体感）
   sessions.patchItem(sessionId, { status: 'analyzing' })
   try {
-    const card = await api.distillSession(sessionId)
-    // 分析完成：原地更新状态，无需整页刷新
-    sessions.patchItem(sessionId, {
-      status: 'analyzed',
-      value: card.value ?? null,
-      cardId: card.id,
-    })
-    showToast(`笔记已生成：${card.title}`)
-    void router.push({
-      name: 'session-detail',
-      params: { sessionId },
-      query: { cardId: card.id },
-    })
+    const result = await api.distillSession(sessionId)
+
+    if (result.isLowValue) {
+      // 低/无价值：更新为已分析状态（无卡片），显示提示而非错误
+      sessions.patchItem(sessionId, {
+        status: 'analyzed',
+        value: result.value,
+        cardId: null,
+        cardTitle: null,
+        cardSummary: result.reason ?? null,
+        cardType: null,
+        cardTags: null,
+      })
+      showToast(
+        `已判断为${result.value === 'none' ? '无价值' : '低价值'}：${result.reason ?? ''}`,
+        'warning',
+      )
+    } else {
+      // 中/高价值：原地更新会话列表行（状态 + 卡片摘要信息）
+      const card = result.card!
+      sessions.patchItem(sessionId, {
+        status: 'analyzed',
+        value: card.value ?? null,
+        cardId: card.id,
+        cardTitle: card.title,
+        cardSummary: card.summary ?? null,
+        cardType: card.type ?? null,
+        cardTags: card.tags?.join(',') ?? null,
+      })
+      showToast(`笔记已生成：${card.title}`)
+      void router.push({
+        name: 'session-detail',
+        params: { sessionId },
+        query: { cardId: card.id },
+      })
+    }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
     sessions.patchItem(sessionId, { status: 'error' })
@@ -116,11 +152,9 @@ function toggleBatchMode() {
 function toggleSelectAll(checked: boolean) {
   if (checked) {
     // 只选当前页未分析的会话（无卡片且非 analyzing 状态）
-    selectedIds.value = new Set(
-      sessions.items
-        .filter((s) => !s.cardId && s.status !== 'analyzing')
-        .map((s) => s.id),
-    )
+        selectedIds.value = new Set(
+          sessions.items.filter(isPending).map((s) => s.id),
+        )
   } else {
     selectedIds.value = new Set()
   }
@@ -159,13 +193,33 @@ async function startBatchAnalyze() {
 
   for (const id of ids) {
     try {
-      const card = await api.distillSession(id)
-      sessions.patchItem(id, {
-        status: 'analyzed',
-        value: card.value ?? null,
-        cardId: card.id,
-      })
-      successCount++
+      const result = await api.distillSession(id)
+
+      if (result.isLowValue) {
+        // 低/无价值：标记为已分析，不计入失败
+        sessions.patchItem(id, {
+          status: 'analyzed',
+          value: result.value,
+          cardId: null,
+          cardTitle: null,
+          cardSummary: result.reason ?? null,
+          cardType: null,
+          cardTags: null,
+        })
+        successCount++
+      } else {
+        const card = result.card!
+        sessions.patchItem(id, {
+          status: 'analyzed',
+          value: card.value ?? null,
+          cardId: card.id,
+          cardTitle: card.title,
+          cardSummary: card.summary ?? null,
+          cardType: card.type ?? null,
+          cardTags: card.tags?.join(',') ?? null,
+        })
+        successCount++
+      }
     } catch {
       sessions.patchItem(id, { status: 'error' })
       failCount++
@@ -210,12 +264,18 @@ function openSearchHit(cardId: string, sessionId: string) {
       <div
         v-if="toast"
         class="fixed top-4 left-1/2 -translate-x-1/2 z-50 rounded-lg border px-3 py-2 shadow-lg flex items-center gap-2 text-sm"
-        :class="toast.type === 'error'
-          ? 'border-red-200 bg-red-50 dark:bg-red-950/80 dark:border-red-800 text-red-800 dark:text-red-200'
-          : 'border-brand-200 bg-brand-50 dark:bg-brand-950/80 dark:border-brand-800 text-brand-800 dark:text-brand-200'"
+        :class="{
+          'border-red-200 bg-red-50 dark:bg-red-950/80 dark:border-red-800 text-red-800 dark:text-red-200': toast.type === 'error',
+          'border-amber-200 bg-amber-50 dark:bg-amber-950/80 dark:border-amber-800 text-amber-800 dark:text-amber-200': toast.type === 'warning',
+          'border-brand-200 bg-brand-50 dark:bg-brand-950/80 dark:border-brand-800 text-brand-800 dark:text-brand-200': toast.type === 'success',
+        }"
       >
         <span
-          :class="toast.type === 'error' ? 'i-lucide-x-circle text-red-500' : 'i-lucide-check-circle text-brand-500'"
+          :class="{
+            'i-lucide-x-circle text-red-500': toast.type === 'error',
+            'i-lucide-alert-triangle text-amber-500': toast.type === 'warning',
+            'i-lucide-check-circle text-brand-500': toast.type === 'success',
+          }"
           class="w-4 h-4"
         />
         {{ toast.msg }}

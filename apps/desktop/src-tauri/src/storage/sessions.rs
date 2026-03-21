@@ -22,19 +22,50 @@ fn session_summary_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Session
         has_updates: row.get::<_, i64>(10)? != 0,
         created_at: row.get(11)?,
         card_id: row.get(12)?,
-        // 消息内容字节总量（SUM(LENGTH(content))），用于列表展示 xx KB
         raw_size_bytes: row.get::<_, i64>(13).unwrap_or(0),
+        card_title: row.get(14)?,
+        card_summary: row.get(15)?,
+        card_type: row.get(16)?,
+        card_tags: row.get(17)?,
     })
 }
 
 /// 列表查询列：须与 `session_summary_from_row` 下标一致。
-/// - 列 12: card_id 子查询（最新卡片 ID）
-/// - 列 13: raw_size_bytes 子查询（消息内容字节总量）
+///
+/// 列索引：
+/// - 0-11 : sessions 基础字段
+/// - 12   : card_id
+/// - 13   : raw_size_bytes
+/// - 14   : card_title  → COALESCE(card.title,  s.analysis_title)
+/// - 15   : card_summary → COALESCE(card.summary, s.analysis_note)
+/// - 16   : card_type   → COALESCE(card.type,   s.analysis_type)
+/// - 17   : card_tags
+///
+/// card_title / card_summary / card_type 均以 analysis_* 列兜底，
+/// 确保低/无价值会话（无 Card 产出）在列表中也能展示类型徽章、标题和摘要。
 const SESSION_SUMMARY_COLUMNS: &str = "\
     s.id, s.source_id, s.session_id, s.source_host, s.project_path, s.project_name, \
     s.message_count, s.status, s.value, s.updated_at, s.has_updates, s.created_at, \
-    (SELECT c.id FROM cards c WHERE c.session_id = s.id ORDER BY c.created_at DESC LIMIT 1), \
-    (SELECT COALESCE(SUM(LENGTH(m.content)), 0) FROM messages m WHERE m.session_id = s.id)";
+    (SELECT c.id      FROM cards c WHERE c.session_id = s.id ORDER BY c.created_at DESC LIMIT 1), \
+    (SELECT COALESCE(SUM(LENGTH(m.content)), 0) FROM messages m WHERE m.session_id = s.id), \
+    COALESCE(\
+        (SELECT c.title   FROM cards c WHERE c.session_id = s.id ORDER BY c.created_at DESC LIMIT 1), \
+        s.analysis_title\
+    ), \
+    COALESCE(\
+        (SELECT c.summary FROM cards c WHERE c.session_id = s.id ORDER BY c.created_at DESC LIMIT 1), \
+        s.analysis_note\
+    ), \
+    COALESCE(\
+        (SELECT c.\"type\" FROM cards c WHERE c.session_id = s.id ORDER BY c.created_at DESC LIMIT 1), \
+        s.analysis_type\
+    ), \
+    (SELECT GROUP_CONCAT(t.name, ',') \
+       FROM card_tags ct \
+       JOIN tags t ON ct.tag_id = t.id \
+       WHERE ct.card_id = ( \
+           SELECT c.id FROM cards c WHERE c.session_id = s.id ORDER BY c.created_at DESC LIMIT 1 \
+       ))";
 
 impl Database {
     /// 导入会话。使用 INSERT OR IGNORE 实现去重（唯一键: session_id + source_host）。
@@ -289,6 +320,26 @@ impl Database {
         Ok(())
     }
 
+    /// 将低/无价值判断的原因、标题、类型批量写入 sessions 表，
+    /// 供列表展示（刷新后仍可见），无需依赖前端内存状态。
+    pub fn update_session_analysis_meta(
+        &self,
+        id: &str,
+        title: &str,
+        card_type: &str,
+        note: &str,
+    ) -> DbResult<()> {
+        let n = self.conn().execute(
+            "UPDATE sessions SET analysis_title = ?1, analysis_type = ?2, analysis_note = ?3 WHERE id = ?4",
+            params![title, card_type, note, id],
+        )?;
+        if n == 0 {
+            return Err(DbError::NotFound(id.to_string()));
+        }
+        log::debug!("写入 analysis_meta: id={}, type={}, title={}", id, card_type, title);
+        Ok(())
+    }
+
     /// 标记会话有新消息（增量同步检测到 message_count 变化时调用）
     pub fn mark_has_updates(&self, id: &str) -> DbResult<()> {
         let n = self.conn().execute(
@@ -310,6 +361,21 @@ impl Database {
             return Err(DbError::NotFound(id.to_string()));
         }
         Ok(())
+    }
+
+    /// 将所有残留的 `analyzing` 状态重置为 `pending`。
+    ///
+    /// 应用启动时调用：如果上一次运行中途退出，可能有会话永远卡在 `analyzing`。
+    /// 重置为 `pending` 允许用户重新触发分析。
+    pub fn reset_stale_analyzing(&self) -> DbResult<usize> {
+        let n = self.conn().execute(
+            "UPDATE sessions SET status = 'pending', error_message = NULL WHERE status = 'analyzing'",
+            [],
+        )?;
+        if n > 0 {
+            log::info!("启动清理：已将 {} 个残留 analyzing 状态的会话重置为 pending", n);
+        }
+        Ok(n)
     }
 
     /// 删除会话下的所有消息（用于增量同步时重新导入）

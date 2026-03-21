@@ -23,6 +23,10 @@ const analyzeError = ref<string | null>(null)
 const loadError = ref<string | null>(null)
 const mode = ref<'note' | 'chat'>('note')
 
+/** 分析超时提示计时器 */
+let analyzeTimer: ReturnType<typeof setTimeout> | null = null
+const analyzeSlow = ref(false)
+
 // ────────────── 数据加载 ──────────────
 
 async function load() {
@@ -62,19 +66,52 @@ function close() {
 async function analyze() {
   analyzing.value = true
   analyzeError.value = null
+  analyzeSlow.value = false
+
+  // 150 秒后显示"分析耗时较长"提示
+  analyzeTimer = setTimeout(() => {
+    analyzeSlow.value = true
+  }, 150_000)
+
   try {
-    const c = await api.distillSession(props.sessionId)
-    card.value = c
-    mode.value = 'note'
-    void router.replace({
-      name: 'session-detail',
-      params: { sessionId: props.sessionId },
-      query: { cardId: c.id },
-    })
+    const result = await api.distillSession(props.sessionId)
+
+    if (result.isLowValue) {
+      // 低/无价值：更新会话 value，清空 card，展示原因
+      if (session.value) {
+        session.value.status = 'analyzed'
+        session.value.value = result.value
+      }
+      card.value = null
+      analyzeError.value = `已判断为${result.value === 'none' ? '无价值' : '低价值'}：${result.reason ?? ''}`
+      // 清除 URL 里的 cardId（保持在详情页）
+      void router.replace({
+        name: 'session-detail',
+        params: { sessionId: props.sessionId },
+      })
+    } else {
+      // 中/高价值：写卡片，切换到笔记视图
+      card.value = result.card
+      mode.value = 'note'
+      if (session.value) {
+        session.value.status = 'analyzed'
+        session.value.value = result.value
+      }
+      void router.replace({
+        name: 'session-detail',
+        params: { sessionId: props.sessionId },
+        query: { cardId: result.card!.id },
+      })
+    }
   } catch (e) {
     analyzeError.value = e instanceof Error ? e.message : String(e)
   } finally {
     analyzing.value = false
+    analyzeSlow.value = false
+    if (analyzeTimer) {
+      clearTimeout(analyzeTimer)
+      analyzeTimer = null
+    }
   }
 }
 
@@ -200,7 +237,21 @@ const valueColors: Record<string, string> = {
 
         <!-- ── 有卡片：展示笔记 ── -->
         <template v-else-if="card">
-          <!-- 分析中的错误提示 -->
+          <!-- 重新分析进行中提示条 -->
+          <div
+            v-if="analyzing"
+            class="mb-4 flex items-center gap-3 rounded-lg border border-brand-200 dark:border-brand-800 bg-brand-50 dark:bg-brand-950/30 px-4 py-3"
+          >
+            <n-spin size="small" />
+            <div>
+              <p class="text-sm font-medium text-brand-700 dark:text-brand-300">正在重新提炼笔记…</p>
+              <p class="text-xs text-brand-600/70 dark:text-brand-400/70 mt-0.5">
+                {{ analyzeSlow ? '分析耗时较长，请耐心等待…' : 'LLM 重新分析对话内容，完成后自动更新笔记' }}
+              </p>
+            </div>
+          </div>
+
+          <!-- 分析错误提示 -->
           <div
             v-if="analyzeError"
             class="mb-4 flex items-center gap-2 rounded-lg border border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-950/30 px-3 py-2 text-sm text-red-600 dark:text-red-400"
@@ -213,6 +264,7 @@ const valueColors: Record<string, string> = {
           <NoteCard
             :card="card"
             :mode="mode"
+            :analyzing="analyzing"
             @update:mode="mode = $event"
             @close="close"
             @reanalyze="analyze"
@@ -245,7 +297,9 @@ const valueColors: Record<string, string> = {
             <n-spin size="small" />
             <div>
               <p class="text-sm font-medium text-brand-700 dark:text-brand-300">正在提炼笔记…</p>
-              <p class="text-xs text-brand-600/70 dark:text-brand-400/70 mt-0.5">LLM 分析对话内容，通常需要 15–60 秒</p>
+              <p class="text-xs text-brand-600/70 dark:text-brand-400/70 mt-0.5">
+                {{ analyzeSlow ? '分析耗时较长，请耐心等待…' : 'LLM 分析对话内容，通常需要 15–60 秒' }}
+              </p>
             </div>
           </div>
 

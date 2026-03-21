@@ -9,6 +9,7 @@ import type {
   AppConfigDto,
   Card,
   CardSummary,
+  DistillSessionResult,
   ListCardsParams,
   Message,
   PaginatedResult,
@@ -44,9 +45,9 @@ export const api = {
   getSessionMessages: (sessionId: string) =>
     invoke<Message[]>('get_session_messages', { sessionId }),
 
-  /** 提炼会话 → 写卡片 */
+  /** 提炼会话 → 价值判断 + 可选笔记生成 */
   distillSession: (sessionId: string) =>
-    invoke<Card>('distill_session', { sessionId }),
+    invoke<DistillSessionResult>('distill_session', { sessionId }),
 
   /** FTS5 全文搜索卡片 */
   searchCards: (params: SearchCardsParams) =>

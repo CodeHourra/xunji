@@ -9,6 +9,20 @@ export interface SyncResult {
   skipped: number
 }
 
+/**
+ * distill_session 返回结果。
+ *
+ * - isLowValue = true：价值为 low / none，已更新 DB，无卡片产出
+ * - isLowValue = false：已生成笔记卡片，card 有值
+ */
+export interface DistillSessionResult {
+  value: string
+  isLowValue: boolean
+  /** 低/无价值时的原因（PROMPT_B_LIGHT reason 字段） */
+  reason: string | null
+  card: Card | null
+}
+
 export interface PaginatedResult<T> {
   items: T[]
   total: number
@@ -33,6 +47,14 @@ export interface SessionSummary {
   cardId?: string | null
   /** 所有消息内容字节总量（SUM(LENGTH(content))），用于展示 xx KB */
   rawSizeBytes: number
+  /** 最新知识卡片标题（已分析后展示） */
+  cardTitle?: string | null
+  /** 最新知识卡片一句话摘要 */
+  cardSummary?: string | null
+  /** 最新知识卡片类型（debug / implementation / …） */
+  cardType?: string | null
+  /** 最新知识卡片标签（逗号分隔，如 "Rust,SQLite"） */
+  cardTags?: string | null
 }
 
 export interface Session {

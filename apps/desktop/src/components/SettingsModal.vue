@@ -77,6 +77,7 @@ watch(
   async (v) => {
     if (v) await loadConfig()
   },
+  { immediate: true },
 )
 
 async function loadConfig() {
@@ -164,8 +165,22 @@ const extraArgsStr = computed({
     transform-origin="center"
     @update:show="emit('update:show', $event)"
   >
+    <!--
+      布局结构：
+        n-card 根元素 → flex column，限定 max-height: 80vh
+        .n-card__content（通过 :content-style）→ flex: 1 + min-height: 0 + overflow hidden
+        tab 内容区 → overflow-y: auto，真正负责滚动
+    -->
     <n-card
-      style="width: 560px; max-height: 80vh; display: flex; flex-direction: column;"
+      style="width: 560px; max-height: 80vh; display: flex; flex-direction: column; overflow: hidden;"
+      :content-style="{
+        flex: '1 1 0',
+        minHeight: 0,
+        overflow: 'hidden',
+        display: 'flex',
+        flexDirection: 'column',
+        padding: 0,
+      }"
       title="设置"
       :bordered="false"
       size="huge"
@@ -183,11 +198,23 @@ const extraArgsStr = computed({
         <n-spin size="large" />
       </div>
 
-      <div v-else-if="workingConfig" style="overflow-y: auto; flex: 1;">
-        <n-tabs type="line" animated>
+      <!--
+        NTabs 占据剩余高度，tab pane 内容区独立滚动。
+        NTabs 自身需要 flex: 1 + overflow hidden 才能把 pane 区限定在容器内。
+      -->
+      <div
+        v-else-if="workingConfig"
+        style="flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden;"
+      >
+        <n-tabs
+          type="line"
+          animated
+          style="flex: 1 1 0; min-height: 0; display: flex; flex-direction: column;"
+          :pane-style="{ flex: '1 1 0', minHeight: 0, overflowY: 'auto', overflowX: 'hidden', padding: '0 24px' }"
+        >
           <!-- ── 提炼配置 Tab ── -->
           <n-tab-pane name="distiller" tab="提炼引擎">
-            <div class="pt-4 space-y-4">
+            <div class="pt-4 pb-4 space-y-4">
 
               <!-- 模式选择 -->
               <div class="flex items-center gap-3">
@@ -318,7 +345,7 @@ const extraArgsStr = computed({
 
           <!-- ── 数据源 Tab ── -->
           <n-tab-pane name="sources" tab="数据源">
-            <div class="pt-4 space-y-2">
+            <div class="pt-4 pb-4 space-y-2">
               <p class="text-xs text-neutral-500 dark:text-neutral-400 mb-3">
                 选择启用的 AI 编程工具对话记录来源，同步时只扫描已启用的数据源。
               </p>
@@ -355,7 +382,7 @@ const extraArgsStr = computed({
         </n-tabs>
       </div>
 
-      <!-- 底部操作 -->
+      <!-- 底部操作 区域不参与滚动，始终固定在底部 -->
       <template #footer>
         <!-- 错误 / 成功提示 -->
         <n-alert v-if="errorMsg" type="error" class="mb-3 !text-xs" :bordered="false">

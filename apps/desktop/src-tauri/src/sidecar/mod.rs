@@ -155,7 +155,7 @@ impl SidecarManager {
         false
     }
 
-    /// 发送 JSON-RPC 请求到 sidecar。如果进程未启动或已崩溃则自动重启。
+    /// 发送 JSON-RPC 请求到 sidecar（使用默认超时）。如果进程未启动或已崩溃则自动重启。
     ///
     /// 注意：call() 内部是同步阻塞的，在 Tauri async command 中调用时
     /// 需用 `tokio::task::spawn_blocking` 包装，避免阻塞 tokio 线程池。
@@ -171,6 +171,26 @@ impl SidecarManager {
             .ok_or_else(|| RpcError::Internal("RPC 客户端未就绪".into()))?;
 
         client.call(method, params)
+    }
+
+    /// 发送 JSON-RPC 请求到 sidecar（使用自定义超时）。如果进程未启动或已崩溃则自动重启。
+    pub fn call_with_timeout<T: DeserializeOwned>(
+        &self,
+        method: &str,
+        params: Value,
+        timeout: std::time::Duration,
+    ) -> Result<T, RpcError> {
+        if !self.is_running() {
+            self.start()?;
+        }
+
+        let client_guard = self.client.lock()
+            .map_err(|_| RpcError::Internal("client lock poisoned".into()))?;
+
+        let client = client_guard.as_ref()
+            .ok_or_else(|| RpcError::Internal("RPC 客户端未就绪".into()))?;
+
+        client.call_with_timeout(method, params, timeout)
     }
 }
 

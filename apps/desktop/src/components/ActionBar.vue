@@ -3,6 +3,8 @@ import { NButton, NButtonGroup } from 'naive-ui'
 
 defineProps<{
   mode: 'note' | 'chat'
+  /** 重新分析进行中 */
+  analyzing?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -18,6 +20,7 @@ const emit = defineEmits<{
       <n-button-group size="small">
         <n-button
           :type="mode === 'note' ? 'primary' : 'default'"
+          :disabled="analyzing"
           @click="emit('update:mode', 'note')"
         >
           <span class="inline-flex items-center gap-1">
@@ -27,6 +30,7 @@ const emit = defineEmits<{
         </n-button>
         <n-button
           :type="mode === 'chat' ? 'primary' : 'default'"
+          :disabled="analyzing"
           @click="emit('update:mode', 'chat')"
         >
           <span class="inline-flex items-center gap-1">
@@ -35,14 +39,23 @@ const emit = defineEmits<{
           </span>
         </n-button>
       </n-button-group>
-      <n-button size="small" type="warning" secondary @click="emit('reanalyze')">
-        <span class="inline-flex items-center gap-1">
+      <!-- 重新分析：分析中时显示 loading 状态并禁用 -->
+      <n-button
+        size="small"
+        type="warning"
+        secondary
+        :loading="analyzing"
+        :disabled="analyzing"
+        @click="emit('reanalyze')"
+      >
+        <span v-if="!analyzing" class="inline-flex items-center gap-1">
           <span class="i-lucide-refresh-cw w-3.5 h-3.5" />
           重新分析
         </span>
+        <span v-else>分析中…</span>
       </n-button>
     </div>
-    <n-button size="small" quaternary @click="emit('close')">
+    <n-button size="small" quaternary :disabled="analyzing" @click="emit('close')">
       关闭
     </n-button>
   </div>

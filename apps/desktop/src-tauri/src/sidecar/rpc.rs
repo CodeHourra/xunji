@@ -22,7 +22,7 @@ pub struct RpcClient {
     stdin: Mutex<ChildStdin>,
     stdout: Mutex<BufReader<ChildStdout>>,
     request_id: AtomicU64,
-    /// RPC 调用超时时间
+    /// RPC 调用默认超时时间
     timeout: Duration,
 }
 
@@ -36,11 +36,26 @@ impl RpcClient {
         }
     }
 
-    /// 发送 JSON-RPC 请求并等待响应（带超时控制）。
+    /// 发送 JSON-RPC 请求并等待响应（使用默认超时）。
     ///
     /// 注意：此方法是同步阻塞的（通过内部线程实现超时）。
     /// 在 Tauri async command 中调用时需用 `tokio::task::spawn_blocking` 包装。
     pub fn call<T: DeserializeOwned>(&self, method: &str, params: Value) -> Result<T, RpcError> {
+        self.call_with_timeout(method, params, self.timeout)
+    }
+
+    /// 发送 JSON-RPC 请求并等待响应（使用自定义超时）。
+    ///
+    /// 不同的 RPC 方法可能需要不同的超时时间：
+    /// - `init` → 30 秒
+    /// - `judge_value` → 60 秒
+    /// - `distill_full` → 300 秒（大对话可能需要更长时间）
+    pub fn call_with_timeout<T: DeserializeOwned>(
+        &self,
+        method: &str,
+        params: Value,
+        timeout: Duration,
+    ) -> Result<T, RpcError> {
         let id = self.request_id.fetch_add(1, Ordering::SeqCst);
 
         let request = serde_json::json!({
@@ -53,7 +68,7 @@ impl RpcClient {
         let request_str = serde_json::to_string(&request)
             .map_err(|e| RpcError::Serialize(e.to_string()))?;
 
-        log::debug!("RPC 请求: method={}, id={}", method, id);
+        log::debug!("RPC 请求: method={}, id={}, timeout={}s", method, id, timeout.as_secs());
 
         // 写 stdin
         {
@@ -66,7 +81,7 @@ impl RpcClient {
         }
 
         // 读 stdout，通过独立线程 + channel 实现超时控制
-        let response_str = self.read_response_with_timeout()?;
+        let response_str = self.read_response_with_timeout(timeout)?;
 
         if response_str.trim().is_empty() {
             return Err(RpcError::Io("Sidecar 返回空响应（进程可能已退出）".into()));
@@ -102,12 +117,11 @@ impl RpcClient {
     ///
     /// 实现方式：scoped thread 内阻塞读取 + channel recv_timeout。
     /// `std::thread::scope` 保证子线程在作用域内结束，无需 unsafe。
-    fn read_response_with_timeout(&self) -> Result<String, RpcError> {
+    fn read_response_with_timeout(&self, timeout: Duration) -> Result<String, RpcError> {
         let mut stdout = self.stdout.lock()
             .map_err(|_| RpcError::Internal("stdout lock poisoned".into()))?;
 
         let (tx, rx) = std::sync::mpsc::channel::<Result<String, String>>();
-        let timeout = self.timeout;
 
         // scoped thread 可以安全借用栈上的 MutexGuard
         std::thread::scope(|s| {

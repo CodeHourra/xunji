@@ -17,6 +17,18 @@ pub fn run(conn: &Connection) -> DbResult<()> {
     if version < 1 {
         migrate_v1(conn)?;
     }
+    if version < 2 {
+        migrate_v2(conn)?;
+    }
+    if version < 3 {
+        migrate_v3(conn)?;
+    }
+    if version < 4 {
+        migrate_v4(conn)?;
+    }
+    if version < 5 {
+        migrate_v5(conn)?;
+    }
 
     Ok(())
 }
@@ -135,11 +147,10 @@ fn migrate_v1(conn: &Connection) -> DbResult<()> {
             FOREIGN KEY (card_id) REFERENCES cards(id)
         );
 
-        -- FTS5 full-text search index
+        -- FTS5 全文搜索索引（独立表，手动管理写入/删除）
+        -- 注意：不使用 content='cards'，因为 cards 表没有 tags 列
         CREATE VIRTUAL TABLE IF NOT EXISTS cards_fts USING fts5(
             title, summary, note, tags,
-            content='cards',
-            content_rowid='rowid',
             tokenize='unicode61'
         );
 
@@ -160,5 +171,107 @@ fn migrate_v1(conn: &Connection) -> DbResult<()> {
     )?;
 
     log::info!("数据库迁移 v1 完成");
+    Ok(())
+}
+
+/// v2 迁移：修复 cards_fts FTS5 表。
+///
+/// v1 的 `cards_fts` 使用了 `content='cards'`，导致 SQLite 在读取时
+/// 反查 cards 表并报 "no such column: T.tags"（cards 表没有 tags 列）。
+///
+/// 修复方案：
+/// 1. 删除旧的 content-backed FTS5 表
+/// 2. 重建为独立 FTS5 表（不绑定 content 表）
+/// 3. 从现有卡片 + card_tags 重建索引
+fn migrate_v2(conn: &Connection) -> DbResult<()> {
+    log::info!("执行数据库迁移 v2：修复 cards_fts 表...");
+
+    conn.execute_batch(
+        "
+        -- 删除旧的 content-backed FTS5 表（及其影子表）
+        DROP TABLE IF EXISTS cards_fts;
+
+        -- 重建为独立 FTS5 表，不使用 content='cards'
+        CREATE VIRTUAL TABLE cards_fts USING fts5(
+            title, summary, note, tags,
+            tokenize='unicode61'
+        );
+
+        -- 从现有卡片数据重建全文索引
+        -- tags 字段通过 card_tags + tags 关联表拼接为逗号分隔字符串
+        INSERT INTO cards_fts(rowid, title, summary, note, tags)
+        SELECT
+            c.rowid,
+            c.title,
+            COALESCE(c.summary, ''),
+            c.note,
+            COALESCE(
+                (SELECT GROUP_CONCAT(t.name, ',')
+                 FROM card_tags ct
+                 JOIN tags t ON ct.tag_id = t.id
+                 WHERE ct.card_id = c.id),
+                ''
+            )
+        FROM cards c;
+
+        PRAGMA user_version = 2;
+        ",
+    )?;
+
+    log::info!("数据库迁移 v2 完成");
+    Ok(())
+}
+
+/// v3 迁移：为 sessions 表新增 `analysis_note` 列。
+///
+/// 用于持久化低/无价值会话的判断原因，使页面刷新后仍可在会话列表展示摘要，
+/// 而不依赖前端内存中的临时 patchItem。
+fn migrate_v3(conn: &Connection) -> DbResult<()> {
+    log::info!("执行数据库迁移 v3：为 sessions 表新增 analysis_note 列...");
+
+    conn.execute_batch(
+        "
+        ALTER TABLE sessions ADD COLUMN analysis_note TEXT;
+        PRAGMA user_version = 3;
+        ",
+    )?;
+
+    log::info!("数据库迁移 v3 完成");
+    Ok(())
+}
+
+/// v5 迁移：为 cards 表新增 `tech_stack` 列。
+///
+/// LLM 在 distill_full 时会返回涉及的技术栈列表（如 ["Rust", "SQLite", "Tauri"]），
+/// 此前该字段被丢弃（#[allow(dead_code)]），v5 开始持久化为逗号分隔字符串。
+fn migrate_v5(conn: &Connection) -> DbResult<()> {
+    log::info!("执行数据库迁移 v5：为 cards 表新增 tech_stack 列...");
+
+    conn.execute_batch(
+        "
+        ALTER TABLE cards ADD COLUMN tech_stack TEXT;
+        PRAGMA user_version = 5;
+        ",
+    )?;
+
+    log::info!("数据库迁移 v5 完成");
+    Ok(())
+}
+///
+/// 低/无价值会话无 Card 产出，但 judge_value 仍返回对话类型（type）和原因（reason）。
+/// 这两列持久化该信息，使列表在刷新后仍能展示类型徽章和由原因构造的标题，
+/// 而无需依赖前端内存中的临时 patchItem。
+fn migrate_v4(conn: &Connection) -> DbResult<()> {
+    log::info!("执行数据库迁移 v4：为 sessions 表新增 analysis_title / analysis_type 列...");
+
+    conn.execute_batch(
+        "
+        ALTER TABLE sessions ADD COLUMN analysis_title TEXT;
+        ALTER TABLE sessions ADD COLUMN analysis_type  TEXT;
+        PRAGMA user_version = 4;
+        ",
+    )?;
+
+    log::info!("数据库迁移 v4 完成");
     Ok(())
 }

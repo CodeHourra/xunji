@@ -25,9 +25,8 @@ use crate::AppState;
 struct JudgeValueResult {
     value: String,
     #[serde(rename = "type")]
-    #[allow(dead_code)]
     card_type: String,
-    #[allow(dead_code)]
+    /// 低/无价值时的原因（也用于构造标题和摘要）
     reason: String,
     #[allow(dead_code)]
     prompt_tokens: i64,
@@ -47,7 +46,6 @@ struct DistillFullResult {
     #[serde(default)]
     tags: Vec<String>,
     #[serde(default)]
-    #[allow(dead_code)]
     tech_stack: Vec<String>,
     prompt_tokens: i64,
     completion_tokens: i64,
@@ -107,12 +105,35 @@ pub async fn get_session_messages(
     .map_err(|e| format!("get_session_messages join 失败: {}", e))?
 }
 
+/// `distill_session` 返回结果
+///
+/// ```text
+/// is_low_value = true  → low / none，DB 已记录价值，无 Card 产出
+/// is_low_value = false → medium / high，Card 已写库
+/// ```
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DistillSessionResult {
+    /// 分析后的价值等级（high / medium / low / none）
+    pub value: String,
+    /// true = 低/无价值，未生成笔记；false = 已生成笔记
+    pub is_low_value: bool,
+    /// 低/无价值时：由 reason 构造的简短标题
+    pub card_title: Option<String>,
+    /// 低/无价值时：judge_value 返回的对话类型（debug / learning / …）
+    pub card_type: Option<String>,
+    /// 低/无价值时的原因说明（作为摘要展示）
+    pub reason: Option<String>,
+    /// 生成的卡片（仅 is_low_value = false 时有值）
+    pub card: Option<Card>,
+}
+
 /// 对指定会话执行价值判断 +（可选）完整提炼，并写入 `cards` 表。
 #[tauri::command(rename_all = "camelCase")]
 pub async fn distill_session(
     state: State<'_, AppState>,
     session_id: String,
-) -> Result<Card, String> {
+) -> Result<DistillSessionResult, String> {
     let sidecar = state
         .sidecar
         .clone()
@@ -129,13 +150,21 @@ pub async fn distill_session(
     .map_err(|e| format!("distill_session join 失败: {}", e))?
 }
 
+
 /// 在阻塞线程内跑完 DB + Sidecar 全流程（避免阻塞 tokio worker）。
+///
+/// 流程：
+/// ```text
+/// analyzing 状态 → init → judge_value (PROMPT_B_LIGHT)
+///   ├── low / none → 更新 DB 为 analyzed + value → Ok(isLowValue=true)
+///   └── medium / high → distill_full (PROMPT_B_FULL) → insert_card → Ok(isLowValue=false)
+/// ```
 fn run_distill_pipeline(
     db: &Database,
     config: &AppConfig,
     sidecar: &SidecarManager,
     session_db_id: &str,
-) -> Result<Card, String> {
+) -> Result<DistillSessionResult, String> {
     let session = db.get_session(session_db_id).map_err(|e| e.to_string())?;
     let messages = db
         .get_session_messages(session_db_id)
@@ -150,90 +179,141 @@ fn run_distill_pipeline(
         return Err("会话正文为空，无法提炼".to_string());
     }
 
+    // 设置 analyzing 状态
     db.update_session_status(session_db_id, "analyzing", None)
         .map_err(|e| e.to_string())?;
 
-    let init_params = config.sidecar_init_params().map_err(|e| {
-        let _ = db.update_session_error(session_db_id, &e);
-        e
-    })?;
+    // 用闭包包裹后续逻辑，确保任何真正失败都能将状态回退为 error
+    let result = (|| -> Result<DistillSessionResult, String> {
+        let init_params = config.sidecar_init_params()?;
 
-    if let Err(e) = sidecar.call::<serde_json::Value>("init", init_params) {
-        let msg = e.to_string();
-        let _ = db.update_session_error(session_db_id, &msg);
-        return Err(msg);
-    }
+        sidecar
+            .call_with_timeout::<serde_json::Value>(
+                "init",
+                init_params,
+                std::time::Duration::from_secs(30),
+            )
+            .map_err(|e| e.to_string())?;
 
-    let judge: JudgeValueResult =
-        match sidecar.call("judge_value", serde_json::json!({ "content": content })) {
-            Ok(v) => v,
-            Err(e) => {
-                let msg = e.to_string();
-                let _ = db.update_session_error(session_db_id, &msg);
-                return Err(msg);
+        // ── 第一步：轻量价值判断（PROMPT_B_LIGHT） ──
+        let judge: JudgeValueResult = sidecar
+            .call_with_timeout(
+                "judge_value",
+                serde_json::json!({ "content": content }),
+                std::time::Duration::from_secs(120),
+            )
+            .map_err(|e| e.to_string())?;
+
+        let v_norm = judge.value.to_lowercase();
+        log::info!("价值判断结果: {} (session={})", v_norm, session_db_id);
+
+        // ── low / none：更新价值 + 持久化标题/类型/原因 → 正常返回（非错误） ──
+        if v_norm == "low" || v_norm == "none" {
+            if let Err(e) =
+                db.update_session_status(session_db_id, "analyzed", Some(&judge.value))
+            {
+                log::error!("低/无价值会话状态回写失败: {}", e);
             }
-        };
 
-    let v_norm = judge.value.to_lowercase();
-    if v_norm == "low" || v_norm == "none" {
-        if let Err(e) =
-            db.update_session_status(session_db_id, "analyzed", Some(&judge.value))
-        {
-            log::error!("低价值会话状态回写失败: {}", e);
+            // 由 reason 截取前 30 字符作为显示标题（不截断词，保留语义）
+            let title = build_analysis_title(&judge.reason);
+
+            // 将标题、类型、原因一并持久化，刷新后列表仍可正确展示
+            if let Err(e) = db.update_session_analysis_meta(
+                session_db_id,
+                &title,
+                &judge.card_type,
+                &judge.reason,
+            ) {
+                log::error!("写入 analysis_meta 失败: {}", e);
+            }
+
+            return Ok(DistillSessionResult {
+                value: judge.value,
+                is_low_value: true,
+                card_title: Some(title),
+                card_type: Some(judge.card_type),
+                reason: Some(judge.reason),
+                card: None,
+            });
         }
-        return Err(format!(
-            "价值评估为「{}」，未达到生成笔记阈值（需 medium / high）",
-            judge.value
-        ));
-    }
 
-    if v_norm != "medium" && v_norm != "high" {
-        let msg = format!("未知的价值等级: {}", judge.value);
-        let _ = db.update_session_error(session_db_id, &msg);
-        return Err(msg);
-    }
+        if v_norm != "medium" && v_norm != "high" {
+            return Err(format!("未知的价值等级: {}", judge.value));
+        }
 
-    let full: DistillFullResult =
-        match sidecar.call("distill_full", serde_json::json!({ "content": content })) {
-            Ok(v) => v,
-            Err(e) => {
-                let msg = e.to_string();
-                let _ = db.update_session_error(session_db_id, &msg);
-                return Err(msg);
-            }
+        // ── 第二步：完整笔记提炼（PROMPT_B_FULL，仅 medium / high） ──
+        let full: DistillFullResult = sidecar
+            .call_with_timeout(
+                "distill_full",
+                serde_json::json!({ "content": content }),
+                std::time::Duration::from_secs(300),
+            )
+            .map_err(|e| e.to_string())?;
+
+        db.delete_cards_for_session(session_db_id)
+            .map_err(|e| e.to_string())?;
+
+        let source_name = config.source_display_name(&session.source_id);
+        let project_name = session.project_name.clone();
+
+        let new_card = NewCard {
+            session_id: session_db_id,
+            title: full.title.as_str(),
+            card_type: Some(full.card_type.as_str()),
+            value: Some(full.value.as_str()),
+            summary: Some(full.summary.as_str()),
+            note: full.note.as_str(),
+            source_name: source_name.as_deref(),
+            project_name: project_name.as_deref(),
+            prompt_tokens: full.prompt_tokens.clamp(0, i32::MAX as i64) as i32,
+            completion_tokens: full.completion_tokens.clamp(0, i32::MAX as i64) as i32,
+            cost_yuan: 0.0,
+            tags: &full.tags,
+            tech_stack: &full.tech_stack,
         };
 
-    db.delete_cards_for_session(session_db_id)
-        .map_err(|e| e.to_string())?;
+        let card_id = db.insert_card(&new_card).map_err(|e| e.to_string())?;
 
-    let source_name = config.source_display_name(&session.source_id);
-    let project_name = session.project_name.clone();
+        db.update_session_status(session_db_id, "analyzed", Some(&full.value))
+            .map_err(|e| e.to_string())?;
 
-    let new_card = NewCard {
-        session_id: session_db_id,
-        title: full.title.as_str(),
-        card_type: Some(full.card_type.as_str()),
-        value: Some(full.value.as_str()),
-        summary: Some(full.summary.as_str()),
-        note: full.note.as_str(),
-        source_name: source_name.as_deref(),
-        project_name: project_name.as_deref(),
-        prompt_tokens: full.prompt_tokens.clamp(0, i32::MAX as i64) as i32,
-        completion_tokens: full.completion_tokens.clamp(0, i32::MAX as i64) as i32,
-        cost_yuan: 0.0,
-        tags: &full.tags,
-    };
+        let card = db.get_card(&card_id).map_err(|e| e.to_string())?;
+        Ok(DistillSessionResult {
+            value: full.value,
+            is_low_value: false,
+            card_title: None,
+            card_type: None,
+            reason: None,
+            card: Some(card),
+        })
+    })();
 
-    let card_id = db.insert_card(&new_card).map_err(|e| {
-        let msg = e.to_string();
-        let _ = db.update_session_error(session_db_id, &msg);
-        msg
-    })?;
+    // 真正失败时（非低价值场景），状态回退为 error
+    if let Err(ref e) = result {
+        if let Ok(s) = db.get_session(session_db_id) {
+            if s.status == "analyzing" {
+                let _ = db.update_session_error(session_db_id, e);
+            }
+        }
+    }
 
-    db.update_session_status(session_db_id, "analyzed", Some(&full.value))
-        .map_err(|e| e.to_string())?;
+    result
+}
 
-    db.get_card(&card_id).map_err(|e| e.to_string())
+/// 从 LLM 判断原因截取简短标题（最多 30 个 Unicode 字符，超出时附加省略号）。
+///
+/// 示例：
+///   "问题过于简单，答案是常识" → "问题过于简单，答案是常识"（未超长）
+///   "内容高度重复，没有新知识点，用户反复询问相同内容，建议归档。" → "内容高度重复，没有新知识点，用户反…"
+fn build_analysis_title(reason: &str) -> String {
+    const MAX_CHARS: usize = 30;
+    let chars: Vec<char> = reason.chars().collect();
+    if chars.len() <= MAX_CHARS {
+        reason.to_string()
+    } else {
+        chars[..MAX_CHARS].iter().collect::<String>() + "…"
+    }
 }
 
 /// 将消息列表拼成单一字符串，供 LLM 前处理（角色标签 + 换行分隔）。

@@ -30,6 +30,15 @@ pub(super) fn card_summary_from_row(row: &Row<'_>) -> rusqlite::Result<CardSumma
 }
 
 fn card_from_row(row: &Row<'_>) -> rusqlite::Result<Card> {
+    // tech_stack 以逗号分隔字符串存储，读出后拆分还原为 Vec
+    let tech_stack_str: Option<String> = row.get(18)?;
+    let tech_stack = tech_stack_str
+        .unwrap_or_default()
+        .split(',')
+        .filter(|s| !s.is_empty())
+        .map(String::from)
+        .collect();
+
     Ok(Card {
         id: row.get(0)?,
         session_id: row.get(1)?,
@@ -50,6 +59,7 @@ fn card_from_row(row: &Row<'_>) -> rusqlite::Result<Card> {
         created_at: row.get(16)?,
         updated_at: row.get(17)?,
         tags: Vec::new(),
+        tech_stack,
     })
 }
 
@@ -114,11 +124,13 @@ impl Database {
         let id = Uuid::new_v4().to_string();
         let now = Utc::now().to_rfc3339();
         let tags_joined = card.tags.join(",");
+        // tech_stack 同样逗号拼接存储
+        let tech_stack_joined = card.tech_stack.join(",");
 
         let mut conn = self.conn();
         let tx = conn.transaction()?;
 
-        //  18 列 = 14 个 ? 占位符 + 4 个 NULL（category_id, memory, skill, feedback）
+        //  19 列 = 15 个 ? 占位符 + 4 个 NULL（category_id, memory, skill, feedback）
         //
         //  id  session_id  title  type  value  summary  note
         //  ?   ?           ?      ?     ?      ?        ?
@@ -126,20 +138,20 @@ impl Database {
         //  category_id  memory  skill  source_name  project_name
         //  NULL         NULL    NULL   ?            ?
         //
-        //  prompt_tokens  completion_tokens  cost_yuan  feedback  created_at  updated_at
-        //  ?              ?                  ?          NULL      ?           ?
+        //  prompt_tokens  completion_tokens  cost_yuan  feedback  tech_stack  created_at  updated_at
+        //  ?              ?                  ?          NULL      ?           ?           ?
         tx.execute(
             "INSERT INTO cards (
                 id, session_id, title, type, value, summary, note,
                 category_id, memory, skill, source_name, project_name,
                 prompt_tokens, completion_tokens, cost_yuan, feedback,
-                created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, ?, ?, ?, ?, NULL, ?, ?)",
+                tech_stack, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, ?, ?, ?, ?, NULL, ?, ?, ?)",
             params![
                 &id, card.session_id, card.title, card.card_type, card.value,
                 card.summary, card.note, card.source_name, card.project_name,
                 card.prompt_tokens, card.completion_tokens, card.cost_yuan,
-                &now, &now,
+                &tech_stack_joined, &now, &now,
             ],
         )?;
 
@@ -161,11 +173,22 @@ impl Database {
             )?;
         }
 
-        // 手动同步 FTS5 索引（content='cards' 模式需要外部触发写入）
+        // 同步 FTS5 全文索引（独立表，手动写入）
+        // 取出刚插入行的 rowid，使 FTS 行与 cards 行对应
+        let rowid: i64 = tx.query_row(
+            "SELECT rowid FROM cards WHERE id = ?",
+            params![&id],
+            |row| row.get(0),
+        )?;
         tx.execute(
-            "INSERT INTO cards_fts(rowid, title, summary, note, tags) \
-             SELECT rowid, title, summary, note, ? FROM cards WHERE id = ?",
-            params![&tags_joined, &id],
+            "INSERT INTO cards_fts(rowid, title, summary, note, tags) VALUES (?, ?, ?, ?, ?)",
+            params![
+                rowid,
+                card.title,
+                card.summary.unwrap_or_default(),
+                card.note,
+                &tags_joined,
+            ],
         )?;
 
         tx.commit()?;
@@ -184,7 +207,7 @@ impl Database {
                 "SELECT id, session_id, title, type, value, summary, note, \
                  category_id, memory, skill, source_name, project_name, \
                  prompt_tokens, completion_tokens, cost_yuan, feedback, \
-                 created_at, updated_at \
+                 created_at, updated_at, tech_stack \
                  FROM cards WHERE id = ?",
                 params![id],
                 |r| card_from_row(r),

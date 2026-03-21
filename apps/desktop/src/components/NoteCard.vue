@@ -8,6 +8,8 @@ import ActionBar from './ActionBar.vue'
 defineProps<{
   card: Card
   mode: 'note' | 'chat'
+  /** 重新分析进行中 */
+  analyzing?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -36,6 +38,7 @@ const emit = defineEmits<{
     />
     <ActionBar
       :mode="mode"
+      :analyzing="analyzing"
       @update:mode="emit('update:mode', $event)"
       @close="emit('close')"
       @reanalyze="emit('reanalyze')"

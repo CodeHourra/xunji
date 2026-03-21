@@ -86,6 +86,18 @@ pub struct SessionSummary {
     /// 所有消息内容字节总量（SUM(LENGTH(content))），供列表显示 xx KB
     #[serde(default)]
     pub raw_size_bytes: i64,
+    /// 最新知识卡片标题（已分析时展示，代替"待分析"占位文字）
+    #[serde(default)]
+    pub card_title: Option<String>,
+    /// 最新知识卡片一句话摘要
+    #[serde(default)]
+    pub card_summary: Option<String>,
+    /// 最新知识卡片类型（debug / implementation / research / …）
+    #[serde(default)]
+    pub card_type: Option<String>,
+    /// 最新知识卡片标签（逗号分隔字符串，如 "Rust,SQLite,FTS5"）
+    #[serde(default)]
+    pub card_tags: Option<String>,
 }
 
 // ─────────────────────────────── 消息 ─────────────────────────────────
@@ -159,6 +171,9 @@ pub struct Card {
     /// 通过 card_tags + tags 表 JOIN 查询填充，不直接存储在 cards 表
     #[serde(default)]
     pub tags: Vec<String>,
+    /// LLM 提炼时识别到的技术栈（如 Rust、SQLite、Tauri 等），逗号分隔存储
+    #[serde(default)]
+    pub tech_stack: Vec<String>,
 }
 
 /// 卡片列表轻量版（不含 note、memory、skill 等大字段）
@@ -259,6 +274,8 @@ pub struct NewCard<'a> {
     pub cost_yuan: f64,
     /// LLM 生成的标签列表
     pub tags: &'a [String],
+    /// LLM 识别的技术栈列表（如 ["Rust", "SQLite", "Tauri"]）
+    pub tech_stack: &'a [String],
 }
 
 /// 批量写入消息的单条入参

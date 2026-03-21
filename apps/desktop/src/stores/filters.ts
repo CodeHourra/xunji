@@ -15,6 +15,11 @@ export const useFiltersStore = defineStore('filters', () => {
   const sourceHost = ref('')
   /** 项目名称 */
   const projectQuery = ref('')
+  /**
+   * 会话状态过滤：'' = 全部 | 'analyzed' = 已分析 | 'pending' = 待分析
+   * 对应 list_sessions 的 status 参数
+   */
+  const statusFilter = ref<'' | 'analyzed' | 'pending'>('')
 
   // ── 知识库筛选 ──
   /** 知识类型（如 "debug"、"architecture"） */
@@ -27,6 +32,7 @@ export const useFiltersStore = defineStore('filters', () => {
     sourceId.value = ''
     sourceHost.value = ''
     projectQuery.value = ''
+    statusFilter.value = ''
   }
 
   /** 重置知识库筛选 */
@@ -45,6 +51,7 @@ export const useFiltersStore = defineStore('filters', () => {
     sourceId,
     sourceHost,
     projectQuery,
+    statusFilter,
     cardType,
     selectedTags,
     resetSessions,

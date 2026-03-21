@@ -45,6 +45,11 @@ pub fn run() {
 
     let db = Database::open_default().expect("数据库初始化失败");
 
+    // 启动时清理上次运行中残留的 analyzing 状态（中途退出导致的脏数据）
+    if let Err(e) = db.reset_stale_analyzing() {
+        log::error!("清理残留 analyzing 状态失败: {}", e);
+    }
+
     let sidecar = SidecarManager::find_binary().map(|path| {
         Arc::new(SidecarManager::new(path))
     });

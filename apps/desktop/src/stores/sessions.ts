@@ -25,6 +25,8 @@ export const useSessionsStore = defineStore('sessions', () => {
         source: filters.sourceId || undefined,
         host: filters.sourceHost || undefined,
         project: filters.projectQuery || undefined,
+        // statusFilter: '' 表示全部，传 undefined 让后端不过滤
+        status: filters.statusFilter || undefined,
         page: page.value,
         pageSize: pageSize.value,
       })
