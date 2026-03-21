@@ -6,6 +6,7 @@
  */
 
 import OpenAI from 'openai'
+import { CONTENT_HINT_API } from './prompts'
 
 export interface ApiProviderConfig {
   /** API 提供商标识（仅用于日志） */
@@ -57,7 +58,7 @@ export class ApiProvider {
     const response = await this.client.chat.completions.create({
       model: this.model,
       messages: [
-        { role: 'system', content: systemPrompt },
+        { role: 'system', content: systemPrompt + CONTENT_HINT_API },
         { role: 'user', content },
       ],
       temperature: 0.3,

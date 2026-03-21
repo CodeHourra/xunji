@@ -15,7 +15,9 @@
  */
 
 import { spawn } from 'child_process'
+import { tmpdir } from 'os'
 import type { DistillResult } from './api-provider'
+import { CONTENT_HINT_CLI } from './prompts'
 
 export interface CliProviderConfig {
   /** CLI 命令名称（如 "claude"、"gemini"、"codex"，可自定义） */
@@ -39,8 +41,9 @@ export class CliProvider {
    * @param content - 经过前处理的对话内容
    */
   async distill(systemPrompt: string, content: string): Promise<DistillResult> {
-    // 将 system + user 消息合并为一条提示词（CLI 不支持多角色消息结构）
-    const fullPrompt = `${systemPrompt}\n\n---\n\n${content}`
+    // CLI 不支持多角色消息，将 system prompt + 尾部提示 + 对话内容拼为一条。
+    // 使用醒目的分隔线，与 CONTENT_HINT_CLI 中的描述一致。
+    const fullPrompt = `${systemPrompt}${CONTENT_HINT_CLI}\n\n════════════════════════════════════════\n\n${content}`
 
     console.error(
       `[cli-provider] Calling ${this.command} -p, content length: ${fullPrompt.length}`,
@@ -83,6 +86,9 @@ export class CliProvider {
 
       const child = spawn(this.command, args, {
         stdio: ['pipe', 'pipe', 'pipe'],
+        // 使用临时目录作为 cwd，避免 CLI 工具（如 claude）自动读取项目目录下的
+        // CLAUDE.md / .claude/ 等上下文文件，干扰提炼 prompt 的执行。
+        cwd: tmpdir(),
       })
 
       if (useStdin) {
@@ -134,6 +140,7 @@ export class CliProvider {
     return new Promise((resolve) => {
       const child = spawn(this.command, ['--version'], {
         stdio: ['ignore', 'ignore', 'ignore'],
+        cwd: tmpdir(),
       })
       child.on('close', (code) => resolve(code === 0))
       child.on('error', () => resolve(false))
