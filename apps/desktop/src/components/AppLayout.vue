@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import TopBar from './TopBar.vue'
 import Sidebar from './Sidebar.vue'
+import AnalysisQueuePanel from './AnalysisQueuePanel.vue'
 </script>
 
 <template>
@@ -12,5 +13,6 @@ import Sidebar from './Sidebar.vue'
         <router-view />
       </main>
     </div>
+    <AnalysisQueuePanel />
   </div>
 </template>

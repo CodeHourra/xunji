@@ -18,7 +18,11 @@ export interface SyncResult {
 export interface DistillSessionResult {
   value: string
   isLowValue: boolean
-  /** 低/无价值时的原因（PROMPT_B_LIGHT reason 字段） */
+  /** 低/无价值时：由 reason 截取的简短标题 */
+  cardTitle: string | null
+  /** 低/无价值时：judge_value 返回的对话类型（debug / learning / …） */
+  cardType: string | null
+  /** 低/无价值时的原因说明（作为摘要展示） */
   reason: string | null
   card: Card | null
 }
@@ -107,6 +111,8 @@ export interface Card {
   createdAt: string
   updatedAt: string
   tags: string[]
+  /** LLM 提炼时识别到的技术栈（如 Rust、SQLite、Tauri 等） */
+  techStack: string[]
 }
 
 export interface CardSummary {

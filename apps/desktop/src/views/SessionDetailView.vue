@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { storeToRefs } from 'pinia'
 import { NButton, NResult, NSpin, NTag, NTooltip } from 'naive-ui'
 import NoteCard from '../components/NoteCard.vue'
 import ChatReplay from '../components/ChatReplay.vue'
+import { useAnalysisQueueStore } from '../stores/analysisQueue'
 import { api } from '../lib/tauri'
 import type { Card, Message, Session } from '../types'
 
@@ -14,18 +16,31 @@ const props = defineProps<{
 const route = useRoute()
 const router = useRouter()
 
+const queue = useAnalysisQueueStore()
+const { currentTask, tasks } = storeToRefs(queue)
+
 const session = ref<Session | null>(null)
 const messages = ref<Message[]>([])
 const card = ref<Card | null>(null)
 const loading = ref(true)
-const analyzing = ref(false)
 const analyzeError = ref<string | null>(null)
 const loadError = ref<string | null>(null)
 const mode = ref<'note' | 'chat'>('note')
 
-/** 分析超时提示计时器 */
-let analyzeTimer: ReturnType<typeof setTimeout> | null = null
-const analyzeSlow = ref(false)
+/** 当前会话是否正在执行 distill（队列头） */
+const analyzing = computed(
+  () => currentTask.value?.sessionId === props.sessionId,
+)
+
+/** 已在队列中但尚未轮到 */
+const analyzeQueued = computed(() =>
+  tasks.value.some((t) => t.sessionId === props.sessionId && t.status === 'pending'),
+)
+
+/** 耗时超过 150s 提示「分析较慢」 */
+const analyzeSlow = computed(
+  () => analyzing.value && (currentTask.value?.elapsedSec ?? 0) > 150,
+)
 
 // ────────────── 数据加载 ──────────────
 
@@ -55,7 +70,9 @@ async function load() {
 }
 
 onMounted(load)
-watch(() => [props.sessionId, route.query.cardId], () => { void load() })
+watch(() => [props.sessionId, route.query.cardId], () => {
+  void load()
+})
 
 // ────────────── 操作 ──────────────
 
@@ -63,34 +80,24 @@ function close() {
   void router.push({ name: 'sessions' })
 }
 
-async function analyze() {
-  analyzing.value = true
+function analyze() {
   analyzeError.value = null
-  analyzeSlow.value = false
-
-  // 150 秒后显示"分析耗时较长"提示
-  analyzeTimer = setTimeout(() => {
-    analyzeSlow.value = true
-  }, 150_000)
-
-  try {
-    const result = await api.distillSession(props.sessionId)
-
-    if (result.isLowValue) {
-      // 低/无价值：更新会话 value，清空 card，展示原因
+  if (session.value) session.value.status = 'analyzing'
+  const title = session.value?.projectName ?? session.value?.projectPath ?? props.sessionId
+  queue.enqueue(props.sessionId, title, {
+    onLowValue: (result) => {
       if (session.value) {
         session.value.status = 'analyzed'
         session.value.value = result.value
       }
       card.value = null
       analyzeError.value = `已判断为${result.value === 'none' ? '无价值' : '低价值'}：${result.reason ?? ''}`
-      // 清除 URL 里的 cardId（保持在详情页）
       void router.replace({
         name: 'session-detail',
         params: { sessionId: props.sessionId },
       })
-    } else {
-      // 中/高价值：写卡片，切换到笔记视图
+    },
+    onSuccess: (result) => {
       card.value = result.card
       mode.value = 'note'
       if (session.value) {
@@ -100,19 +107,13 @@ async function analyze() {
       void router.replace({
         name: 'session-detail',
         params: { sessionId: props.sessionId },
-        query: { cardId: result.card!.id },
+        query: result.card ? { cardId: result.card.id } : {},
       })
-    }
-  } catch (e) {
-    analyzeError.value = e instanceof Error ? e.message : String(e)
-  } finally {
-    analyzing.value = false
-    analyzeSlow.value = false
-    if (analyzeTimer) {
-      clearTimeout(analyzeTimer)
-      analyzeTimer = null
-    }
-  }
+    },
+    onError: (msg) => {
+      analyzeError.value = msg
+    },
+  })
 }
 
 // ────────────── 会话元数据展示 ──────────────
@@ -126,20 +127,29 @@ const sourceIcon = computed(() => {
 
 const statusTagType = computed<'default' | 'info' | 'success' | 'error'>(() => {
   switch (session.value?.status) {
-    case 'analyzed': return 'success'
-    case 'analyzing': return 'info'
-    case 'error': return 'error'
-    default: return 'default'
+    case 'analyzed':
+      return 'success'
+    case 'analyzing':
+      return 'info'
+    case 'error':
+      return 'error'
+    default:
+      return 'default'
   }
 })
 
 const statusLabel = computed(() => {
   switch (session.value?.status) {
-    case 'pending': return '待分析'
-    case 'analyzing': return '分析中'
-    case 'analyzed': return '已分析'
-    case 'error': return '失败'
-    default: return session.value?.status ?? ''
+    case 'pending':
+      return '待分析'
+    case 'analyzing':
+      return '分析中'
+    case 'analyzed':
+      return '已分析'
+    case 'error':
+      return '失败'
+    default:
+      return session.value?.status ?? ''
   }
 })
 
@@ -151,14 +161,9 @@ const valueColors: Record<string, string> = {
 </script>
 
 <template>
-  <!-- 整体高度撑满父容器，内部滚动 -->
   <div class="flex flex-col h-full">
-
-    <!-- ── 顶部 Header ── -->
     <div class="shrink-0 border-b border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 px-5 py-3">
       <div class="max-w-4xl mx-auto flex items-start gap-4">
-
-        <!-- 返回按钮 -->
         <n-button text size="small" class="mt-0.5 shrink-0" @click="close">
           <span class="inline-flex items-center gap-1 text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200">
             <span class="i-lucide-arrow-left w-4 h-4" />
@@ -166,7 +171,6 @@ const valueColors: Record<string, string> = {
           </span>
         </n-button>
 
-        <!-- 会话元信息 -->
         <div class="flex-1 min-w-0">
           <div v-if="session" class="flex items-center gap-2 flex-wrap">
             <span :class="sourceIcon" class="w-4 h-4 text-neutral-500 shrink-0" />
@@ -200,34 +204,29 @@ const valueColors: Record<string, string> = {
           </div>
         </div>
 
-        <!-- 右侧：分析按钮（无卡片时显示） -->
         <div v-if="session && !card && !loading" class="shrink-0">
           <n-button
             type="primary"
             size="small"
-            :loading="analyzing"
-            :disabled="analyzing"
+            :loading="analyzing || analyzeQueued"
+            :disabled="analyzing || analyzeQueued"
             @click="analyze"
           >
             <span class="inline-flex items-center gap-1.5">
-              <span v-if="!analyzing" class="i-lucide-sparkles w-3.5 h-3.5" />
-              {{ analyzing ? '分析中…' : '提炼笔记' }}
+              <span v-if="!analyzing && !analyzeQueued" class="i-lucide-sparkles w-3.5 h-3.5" />
+              {{ analyzing ? '分析中…' : analyzeQueued ? '排队中…' : '提炼笔记' }}
             </span>
           </n-button>
         </div>
       </div>
     </div>
 
-    <!-- ── 主内容区（可滚动） ── -->
     <div class="flex-1 min-h-0 overflow-y-auto">
       <div class="max-w-4xl mx-auto px-5 py-5">
-
-        <!-- 加载中 -->
         <div v-if="loading" class="flex items-center justify-center py-20">
           <n-spin size="medium" />
         </div>
 
-        <!-- 加载失败 -->
         <n-result v-else-if="loadError" status="error" :title="loadError" class="py-12">
           <template #footer>
             <n-button @click="close">返回列表</n-button>
@@ -235,9 +234,17 @@ const valueColors: Record<string, string> = {
           </template>
         </n-result>
 
-        <!-- ── 有卡片：展示笔记 ── -->
         <template v-else-if="card">
-          <!-- 重新分析进行中提示条 -->
+          <div
+            v-if="analyzeQueued && !analyzing"
+            class="mb-4 flex items-center gap-3 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-900/80 px-4 py-3"
+          >
+            <span class="i-lucide-clock w-4 h-4 text-neutral-500 shrink-0" />
+            <p class="text-sm text-neutral-600 dark:text-neutral-300">
+              已加入分析队列，等待前面的任务完成…（见右下角面板）
+            </p>
+          </div>
+
           <div
             v-if="analyzing"
             class="mb-4 flex items-center gap-3 rounded-lg border border-brand-200 dark:border-brand-800 bg-brand-50 dark:bg-brand-950/30 px-4 py-3"
@@ -251,14 +258,13 @@ const valueColors: Record<string, string> = {
             </div>
           </div>
 
-          <!-- 分析错误提示 -->
           <div
             v-if="analyzeError"
             class="mb-4 flex items-center gap-2 rounded-lg border border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-950/30 px-3 py-2 text-sm text-red-600 dark:text-red-400"
           >
             <span class="i-lucide-alert-circle w-4 h-4 shrink-0" />
             <span class="flex-1">{{ analyzeError }}</span>
-            <button class="opacity-60 hover:opacity-100" @click="analyzeError = null">✕</button>
+            <button class="opacity-60 hover:opacity-100" type="button" @click="analyzeError = null">✕</button>
           </div>
 
           <NoteCard
@@ -277,19 +283,26 @@ const valueColors: Record<string, string> = {
           </NoteCard>
         </template>
 
-        <!-- ── 无卡片：展示原始对话 ── -->
         <template v-else-if="session">
-          <!-- 分析错误提示 -->
+          <div
+            v-if="analyzeQueued && !analyzing"
+            class="mb-4 flex items-center gap-3 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-900/80 px-4 py-3"
+          >
+            <span class="i-lucide-clock w-4 h-4 text-neutral-500 shrink-0" />
+            <p class="text-sm text-neutral-600 dark:text-neutral-300">
+              已加入分析队列，等待前面的任务完成…（见右下角面板）
+            </p>
+          </div>
+
           <div
             v-if="analyzeError"
             class="mb-4 flex items-center gap-2 rounded-lg border border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-950/30 px-3 py-2 text-sm text-red-600 dark:text-red-400"
           >
             <span class="i-lucide-alert-circle w-4 h-4 shrink-0" />
             <span class="flex-1">{{ analyzeError }}</span>
-            <button class="opacity-60 hover:opacity-100" @click="analyzeError = null">✕</button>
+            <button class="opacity-60 hover:opacity-100" type="button" @click="analyzeError = null">✕</button>
           </div>
 
-          <!-- 分析进行中遮罩 -->
           <div
             v-if="analyzing"
             class="mb-4 flex items-center gap-3 rounded-lg border border-brand-200 dark:border-brand-800 bg-brand-50 dark:bg-brand-950/30 px-4 py-3"
@@ -303,9 +316,7 @@ const valueColors: Record<string, string> = {
             </div>
           </div>
 
-          <!-- 对话回放 -->
           <div class="rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900">
-            <!-- 无对话消息时的空状态 -->
             <div v-if="!messages.length" class="px-6 py-12 text-center">
               <span class="i-lucide-message-square-off w-8 h-8 text-neutral-300 dark:text-neutral-600 mx-auto block mb-2" />
               <p class="text-sm text-neutral-400">该会话暂无消息记录</p>
@@ -324,7 +335,6 @@ const valueColors: Record<string, string> = {
             </div>
           </div>
         </template>
-
       </div>
     </div>
   </div>
