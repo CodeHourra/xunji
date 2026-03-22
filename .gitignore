@@ -19,7 +19,6 @@ packages/mcp-server/dist/
 .vscode/
 *.swp
 .agents/
-skills-lock.json
 
 # OS
 .DS_Store
