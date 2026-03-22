@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * 设置对话框 —— 提炼配置（API / CLI 模式切换）+ 数据源管理
+ * 设置对话框 —— 提炼配置（API / CLI 模式切换）+ 数据源管理 + 关于寻迹（版本信息）
  *
  * 配置项：
  * 1. 提炼引擎
@@ -8,13 +8,20 @@
  *    - CLI 模式：command（短命令名或可执行文件绝对路径）/ extra_args
  * 2. 数据源
  *    - 启用/禁用各数据源
+ * 3. 关于寻迹
+ *    - 应用名、版本号、Tauri 运行时版本、Bundle Identifier（来自 tauri.conf / 打包元数据）
+ *    - 各版本变更说明：`src/data/app-changelog.md`（与根目录 `CHANGELOG.md` 同步，Vite `?raw` 打入包）
  */
 import { ref, computed, watch } from 'vue'
 import {
   NModal, NCard, NTabs, NTabPane, NForm, NFormItem,
   NInput, NInputNumber, NSelect, NSwitch, NButton,
   NSpace, NAlert, NDivider, NSpin, NTag,
+  NDescriptions, NDescriptionsItem,
 } from 'naive-ui'
+import { getIdentifier, getName, getTauriVersion, getVersion } from '@tauri-apps/api/app'
+import MarkdownRenderer from './MarkdownRenderer.vue'
+import appChangelogMd from '../data/app-changelog.md?raw'
 import { api } from '../lib/tauri'
 import type { AppConfigDto, CliConfigDto, SourceConfigDto } from '../types'
 
@@ -33,6 +40,23 @@ const successMsg = ref('')
 const cliProbing = ref(false)
 /** 自动检测后的提示（成功 / 未找到 / 失败） */
 const cliProbeHint = ref('')
+
+/**
+ * 关于页：由 Tauri App API 拉取（与 tauri.conf.json / Cargo 打包版本一致）
+ * model 含义：均为应用元数据字符串，供用户排障与对照发行说明
+ */
+const aboutMeta = ref<{
+  /** 应用显示名（productName） */
+  name: string
+  /** 应用语义化版本 */
+  version: string
+  /** Tauri 框架版本 */
+  tauriVersion: string
+  /** Bundle ID，如 com.xunji.app */
+  identifier: string
+} | null>(null)
+const aboutLoading = ref(false)
+const aboutError = ref('')
 
 // 工作副本：从后端加载后复制，保存时提交
 const workingConfig = ref<AppConfigDto | null>(null)
@@ -79,10 +103,36 @@ const defaultModels: Record<string, string> = {
 watch(
   () => props.show,
   async (v) => {
-    if (v) await loadConfig()
+    if (v) {
+      await loadConfig()
+      await loadAboutMeta()
+    }
   },
   { immediate: true },
 )
+
+/** 打开设置时拉取关于信息（每次打开刷新，便于对照升级后的版本号） */
+async function loadAboutMeta() {
+  aboutLoading.value = true
+  aboutError.value = ''
+  aboutMeta.value = null
+  try {
+    const [name, version, tauriVersion, identifier] = await Promise.all([
+      getName(),
+      getVersion(),
+      getTauriVersion(),
+      getIdentifier(),
+    ])
+    aboutMeta.value = { name, version, tauriVersion, identifier }
+  } catch (e) {
+    aboutError.value =
+      e instanceof Error
+        ? e.message
+        : '无法读取应用版本（请在寻迹桌面客户端内打开设置；纯浏览器预览不支持 Tauri App API）'
+  } finally {
+    aboutLoading.value = false
+  }
+}
 
 async function loadConfig() {
   loading.value = true
@@ -175,6 +225,13 @@ function onClose() {
 
 function toggleSource(source: SourceConfigDto) {
   source.enabled = !source.enabled
+}
+
+/** 与 `collector/scheduler.rs` 中 `match source.id` 已实现的采集器一致 */
+const IMPLEMENTED_SOURCE_IDS = new Set(['claude-code', 'cursor'])
+
+function isSourceCollectorImplemented(id: string): boolean {
+  return IMPLEMENTED_SOURCE_IDS.has(id)
 }
 
 // extra_args 字符串 ↔ 数组转换辅助
@@ -398,9 +455,16 @@ const extraArgsStr = computed({
           <!-- ── 数据源 Tab ── -->
           <n-tab-pane name="sources" tab="数据源">
             <div style="max-height: calc(70vh - 220px); overflow-y: auto; padding: 12px 0 16px;" class="space-y-2">
-              <p class="text-xs text-neutral-500 dark:text-neutral-400 mb-3">
+              <p class="text-xs text-neutral-500 dark:text-neutral-400 mb-2">
                 选择启用的 AI 编程工具对话记录来源，同步时只扫描已启用的数据源。
               </p>
+              <n-alert type="info" :bordered="false" class="!text-xs mb-3">
+                <span class="leading-relaxed">
+                  当前版本已接入采集的数据源：<strong>Claude Code</strong>（<code class="text-[11px]">claude-code</code>，JSONL）
+                  与 <strong>Cursor</strong>（<code class="text-[11px]">cursor</code>，本地库）。
+                  若配置中存在其他 id，侧栏仍可显示品牌名，但<strong>同步时会跳过</strong>，直至后续版本接入采集器。
+                </span>
+              </n-alert>
 
               <div
                 v-for="source in workingConfig.collector.sources"
@@ -408,10 +472,17 @@ const extraArgsStr = computed({
                 class="flex items-start justify-between p-3 rounded-lg border border-neutral-200 dark:border-neutral-800 hover:bg-neutral-50 dark:hover:bg-neutral-900 transition-colors"
               >
                 <div class="flex-1 min-w-0">
-                  <div class="flex items-center gap-2 mb-1">
+                  <div class="flex items-center gap-2 mb-1 flex-wrap">
                     <span class="text-sm font-medium text-neutral-800 dark:text-neutral-200">{{ source.name }}</span>
                     <n-tag size="tiny" :type="source.enabled ? 'success' : 'default'">
                       {{ source.enabled ? '已启用' : '已禁用' }}
+                    </n-tag>
+                    <n-tag
+                      v-if="!isSourceCollectorImplemented(source.id)"
+                      size="tiny"
+                      type="warning"
+                    >
+                      采集未接入
                     </n-tag>
                   </div>
                   <div class="space-y-0.5">
@@ -428,6 +499,56 @@ const extraArgsStr = computed({
                   class="ml-3 mt-0.5"
                   @update:value="toggleSource(source)"
                 />
+              </div>
+            </div>
+          </n-tab-pane>
+
+          <!-- ── 关于寻迹 Tab（版本与标识，无表单保存） ── -->
+          <n-tab-pane name="about" tab="关于寻迹">
+            <div style="max-height: calc(70vh - 220px); overflow-y: auto; padding: 12px 0 24px;" class="space-y-4">
+              <div class="flex flex-col items-center gap-2 text-center pb-2">
+                <div class="w-12 h-12 rounded-xl bg-brand-500/15 flex items-center justify-center">
+                  <span class="i-lucide-compass w-7 h-7 text-brand-600 dark:text-brand-400" />
+                </div>
+                <p class="text-base font-semibold text-neutral-800 dark:text-neutral-100">寻迹 XunJi</p>
+                <p class="text-xs text-neutral-500 dark:text-neutral-400 max-w-sm leading-relaxed">
+                  AI 编程知识管理平台 —— 从对话中提炼可复用的技术笔记。
+                </p>
+              </div>
+
+              <div v-if="aboutLoading" class="flex justify-center py-8">
+                <n-spin size="medium" />
+              </div>
+              <n-alert v-else-if="aboutError" type="warning" :bordered="false" class="!text-xs">
+                {{ aboutError }}
+              </n-alert>
+              <n-descriptions
+                v-else-if="aboutMeta"
+                label-placement="left"
+                :column="1"
+                size="small"
+                bordered
+                class="rounded-lg overflow-hidden"
+              >
+                <n-descriptions-item label="应用名称">
+                  <span class="font-mono text-xs">{{ aboutMeta.name }}</span>
+                </n-descriptions-item>
+                <n-descriptions-item label="应用版本">
+                  <span class="font-mono text-xs text-brand-600 dark:text-brand-400">{{ aboutMeta.version }}</span>
+                </n-descriptions-item>
+                <n-descriptions-item label="Tauri 版本">
+                  <span class="font-mono text-xs">{{ aboutMeta.tauriVersion }}</span>
+                </n-descriptions-item>
+                <n-descriptions-item label="应用标识">
+                  <span class="font-mono text-xs break-all">{{ aboutMeta.identifier }}</span>
+                </n-descriptions-item>
+              </n-descriptions>
+
+              <!-- 更新日志：Markdown 静态内容 -->
+              <n-divider class="!my-3" />
+              <p class="text-xs font-medium text-neutral-600 dark:text-neutral-300">更新日志</p>
+              <div class="changelog-panel rounded-lg border border-neutral-200 dark:border-neutral-800 bg-neutral-50/80 dark:bg-neutral-900/40 px-3 py-2">
+                <MarkdownRenderer :source="appChangelogMd" />
               </div>
             </div>
           </n-tab-pane>
@@ -459,3 +580,27 @@ const extraArgsStr = computed({
     </n-card>
   </n-modal>
 </template>
+
+<style scoped>
+/* 关于页内嵌 Markdown：压缩标题层级，避免与上方元信息抢视觉 */
+.changelog-panel :deep(.md-body) {
+  font-size: 0.8125rem;
+}
+.changelog-panel :deep(.md-body h2) {
+  font-size: 1.05rem;
+  margin-top: 1rem;
+  border-bottom: 1px solid rgba(229, 231, 235, 0.9);
+  padding-bottom: 0.25rem;
+}
+.dark .changelog-panel :deep(.md-body h2) {
+  border-bottom-color: rgba(55, 65, 81, 0.9);
+}
+.changelog-panel :deep(.md-body h3) {
+  font-size: 0.95rem;
+  margin-top: 0.75rem;
+}
+.changelog-panel :deep(.md-body blockquote) {
+  margin: 0.5rem 0;
+  font-size: 0.75rem;
+}
+</style>

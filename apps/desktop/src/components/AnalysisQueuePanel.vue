@@ -10,6 +10,7 @@ import { useAnalysisQueueStore } from '../stores/analysisQueue'
 
 const queue = useAnalysisQueueStore()
 const {
+  tasks,
   currentTask,
   pendingCount,
   totalCount,
@@ -17,7 +18,6 @@ const {
   hasAny,
   isIdle,
   progressPercent,
-  recentCompleted,
 } = storeToRefs(queue)
 
 /** 收起态：仅显示窄条，点击可展开 */
@@ -117,59 +117,91 @@ function truncate(s: string, max = 28) {
       </div>
 
       <div class="px-3 py-2 space-y-2">
-        <!-- 当前运行中 -->
-        <div v-if="currentTask">
-          <div class="flex items-start gap-2">
-            <n-spin size="small" class="mt-0.5 shrink-0" />
-            <div class="min-w-0 flex-1">
-              <p class="text-xs text-neutral-700 dark:text-neutral-300 leading-snug">
-                {{ truncate(currentTask.displayTitle) }}
-              </p>
-              <p class="text-[11px] text-neutral-400 mt-0.5 tabular-nums">
-                已耗时 {{ currentTask.elapsedSec }}s
-                <span
-                  v-if="currentTask.elapsedSec > 150"
-                  class="text-amber-600 dark:text-amber-400 ml-1"
+        <!-- 队列明细：每条状态、标题、失败原因（可滚动） -->
+        <div
+          v-if="tasks.length"
+          class="max-h-56 overflow-y-auto space-y-1.5 pr-0.5 text-left border-b border-neutral-100 dark:border-neutral-800 pb-2 -mx-0.5"
+        >
+          <p class="text-[10px] uppercase tracking-wide text-neutral-400 px-0.5 mb-1">队列明细</p>
+          <div
+            v-for="t in tasks"
+            :key="t.sessionId + t.status + (t.errorMessage ?? '')"
+            class="rounded-lg border border-neutral-100 dark:border-neutral-800/80 bg-neutral-50/80 dark:bg-neutral-900/50 px-2 py-1.5"
+          >
+            <div class="flex items-start gap-1.5 min-w-0">
+              <n-spin
+                v-if="t.status === 'running'"
+                size="small"
+                class="mt-0.5 shrink-0"
+              />
+              <span
+                v-else-if="t.status === 'pending'"
+                class="i-lucide-clock w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5"
+              />
+              <span
+                v-else-if="t.status === 'done'"
+                class="i-lucide-check-circle w-3.5 h-3.5 text-emerald-500 shrink-0 mt-0.5"
+              />
+              <span
+                v-else
+                class="i-lucide-x-circle w-3.5 h-3.5 text-red-400 shrink-0 mt-0.5"
+              />
+              <div class="min-w-0 flex-1">
+                <p class="text-[11px] text-neutral-800 dark:text-neutral-200 leading-snug font-medium truncate">
+                  {{ truncate(t.displayTitle, 40) }}
+                </p>
+                <p
+                  v-if="t.status === 'running'"
+                  class="text-[10px] text-neutral-400 mt-0.5 tabular-nums"
                 >
-                  （耗时较长，请耐心等待）
-                </span>
-              </p>
+                  执行中 · {{ t.elapsedSec }}s
+                  <span
+                    v-if="t.elapsedSec > 150"
+                    class="text-amber-600 dark:text-amber-400 ml-1"
+                  >（较慢）</span>
+                </p>
+                <p
+                  v-else-if="t.status === 'pending'"
+                  class="text-[10px] text-neutral-400 mt-0.5"
+                >
+                  排队中
+                </p>
+                <p
+                  v-else-if="t.status === 'done'"
+                  class="text-[10px] text-emerald-600/90 dark:text-emerald-400/90 mt-0.5"
+                >
+                  {{ t.outcome === 'low_value' ? '已完成（低/无价值）' : '已完成' }}
+                </p>
+                <p
+                  v-else-if="t.status === 'error' && t.errorMessage"
+                  class="text-[10px] text-red-600 dark:text-red-400 mt-0.5 line-clamp-4 break-words"
+                >
+                  {{ t.errorMessage }}
+                </p>
+              </div>
             </div>
           </div>
+        </div>
+
+        <div v-if="currentTask">
           <n-progress
             type="line"
             :percentage="progressPercent"
             :show-indicator="true"
             :height="6"
-            class="mt-2"
+            class="mt-1"
             :color="'var(--brand-500, #10b981)'"
           />
         </div>
 
-        <!-- 无当前任务但仍有排队（理论上短暂） -->
-        <div v-else-if="pendingCount > 0 && !isIdle" class="text-xs text-neutral-500 flex items-center gap-1.5">
+        <!-- 无任务在跑但仍有排队（短暂空窗） -->
+        <div
+          v-else-if="pendingCount > 0 && !isIdle"
+          class="text-xs text-neutral-500 flex items-center gap-1.5"
+        >
           <span class="i-lucide-loader-2 w-3.5 h-3.5 animate-spin" />
           准备下一条…
         </div>
-
-        <!-- 最近完成 -->
-        <ul v-if="recentCompleted.length" class="space-y-1 border-t border-neutral-100 dark:border-neutral-800 pt-2">
-          <li
-            v-for="t in recentCompleted"
-            :key="t.sessionId + t.status + (t.outcome ?? '')"
-            class="flex items-center gap-1.5 text-[11px] text-neutral-500 dark:text-neutral-400"
-          >
-            <span
-              v-if="t.status === 'done'"
-              class="i-lucide-check-circle w-3.5 h-3.5 text-emerald-500 shrink-0"
-            />
-            <span
-              v-else
-              class="i-lucide-x-circle w-3.5 h-3.5 text-red-400 shrink-0"
-            />
-            <span class="truncate">{{ truncate(t.displayTitle, 32) }}</span>
-          </li>
-        </ul>
 
         <!-- 底部：等待数 + 停止 -->
         <div

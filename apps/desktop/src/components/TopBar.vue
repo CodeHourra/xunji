@@ -1,18 +1,68 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { NTabs, NTabPane, NTooltip, NButton, NDivider } from 'naive-ui'
+import {
+  NTabs,
+  NTabPane,
+  NTooltip,
+  NButton,
+  NDivider,
+  NDropdown,
+  useMessage,
+  useDialog,
+} from 'naive-ui'
+import type { DropdownOption } from 'naive-ui'
 import { useRouter } from 'vue-router'
 import { useUiStore } from '../stores/ui'
 import { useSessionsStore } from '../stores/sessions'
 import { useSidebarStore } from '../stores/sidebar'
+import { api } from '../lib/tauri'
+import { exportAllCardsToDir } from '../lib/cardExport'
 import SettingsModal from './SettingsModal.vue'
 
 const ui = useUiStore()
 const sessions = useSessionsStore()
 const sidebar = useSidebarStore()
 const router = useRouter()
+const message = useMessage()
+const dialog = useDialog()
 
 const showSettings = ref(false)
+
+/** 顶栏「导出」下拉：与知识库页能力对齐 */
+const exportDropdownOptions: DropdownOption[] = [
+  { key: 'library', label: '前往知识库（多选 / 所选导出）' },
+  { type: 'divider' },
+  { key: 'all', label: '导出全部笔记…' },
+]
+
+function onExportDropdownSelect(key: string | number) {
+  if (key === 'library') {
+    void router.push({ name: 'library' })
+    return
+  }
+  if (key !== 'all') return
+  void (async () => {
+    const total = await api.countAllCards()
+    if (total === 0) {
+      message.info('知识库暂无笔记')
+      return
+    }
+    dialog.warning({
+      title: '导出全部笔记',
+      content: `将导出库内全部 ${total} 条笔记到所选文件夹，不受当前列表筛选影响。`,
+      positiveText: '选择文件夹',
+      negativeText: '取消',
+      onPositiveClick: async () => {
+        try {
+          const r = await exportAllCardsToDir()
+          if (r.ok && r.count != null) message.success(`已导出 ${r.count} 条笔记`)
+        } catch (e) {
+          message.error(e instanceof Error ? e.message : String(e))
+        }
+      },
+    })
+  })()
+}
 
 function onTabChange(tab: string) {
   ui.activeTab = tab as 'sessions' | 'library'
@@ -25,10 +75,15 @@ function onTabChange(tab: string) {
 
 async function onSync() {
   try {
-    await sessions.syncAll()
+    const r = await sessions.syncAll()
     void sidebar.loadSessionGroups()
-  } catch {
-    /* store 已记 error */
+    message.success(
+      `同步完成：发现 ${r.found}，新增 ${r.new}，更新 ${r.updated}，跳过 ${r.skipped}`,
+      { duration: 5000 },
+    )
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    message.error(msg, { duration: 12000, closable: true })
   }
 }
 </script>
@@ -80,14 +135,20 @@ async function onSync() {
 
       <n-divider vertical class="!mx-1.5" />
 
-      <n-tooltip trigger="hover" :delay="400">
-        <template #trigger>
-          <n-button quaternary circle size="small">
-            <span class="i-lucide-download w-4 h-4" />
-          </n-button>
-        </template>
-        导出
-      </n-tooltip>
+      <n-dropdown
+        trigger="click"
+        :options="exportDropdownOptions"
+        @select="onExportDropdownSelect"
+      >
+        <n-tooltip trigger="hover" :delay="400">
+          <template #trigger>
+            <n-button quaternary circle size="small" aria-label="导出">
+              <span class="i-lucide-download w-4 h-4" />
+            </n-button>
+          </template>
+          导出
+        </n-tooltip>
+      </n-dropdown>
 
       <n-tooltip trigger="hover" :delay="400">
         <template #trigger>

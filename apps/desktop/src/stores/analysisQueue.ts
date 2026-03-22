@@ -26,6 +26,8 @@ export interface QueueTask {
   status: QueueTaskStatus
   /** 成功产出笔记 / 低价值无卡片 */
   outcome?: 'success' | 'low_value'
+  /** distill 失败时与 invoke / DB error_message 对齐的可读原因 */
+  errorMessage?: string
   /** 当前条已耗时（秒），仅 running 时递增 */
   elapsedSec: number
   callbacks?: {
@@ -133,6 +135,7 @@ export const useAnalysisQueueStore = defineStore('analysisQueue', () => {
     for (const t of tasks.value) {
       if (t.status === 'pending') {
         t.status = 'error'
+        t.errorMessage = '已取消排队'
         sessions.patchItem(t.sessionId, { status: 'pending' })
         // 让调用方回调（如批量统计）能收到「本条已结束」
         t.callbacks?.onError?.('已取消排队')
@@ -215,8 +218,10 @@ export const useAnalysisQueueStore = defineStore('analysisQueue', () => {
       clearElapsedTimer()
       const msg = e instanceof Error ? e.message : String(e)
       next.status = 'error'
+      next.errorMessage = msg
       const sessions = useSessionsStore()
-      sessions.patchItem(next.sessionId, { status: 'error' })
+      // 与后端 update_session_error 一致，列表 SessionCard 可立即展示原因而无需整页刷新
+      sessions.patchItem(next.sessionId, { status: 'error', errorMessage: msg })
       next.callbacks?.onError?.(msg)
     } finally {
       processing = false

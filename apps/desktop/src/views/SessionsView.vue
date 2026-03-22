@@ -8,6 +8,8 @@ import Pagination from '../components/Pagination.vue'
 import { useSessionsStore } from '../stores/sessions'
 import { useSearchStore } from '../stores/search'
 import { useAnalysisQueueStore } from '../stores/analysisQueue'
+import { api } from '../lib/tauri'
+import { appendDistillHint } from '../lib/distillHints'
 
 const sessions = useSessionsStore()
 const router = useRouter()
@@ -20,6 +22,9 @@ const batchExpected = ref(0)
 const batchFinished = ref(0)
 const batchSuccess = ref(0)
 const batchFail = ref(0)
+
+/** 知识库卡片总数：用于区分「无笔记可搜」与「关键词无匹配」 */
+const libraryCardTotal = ref<number | null>(null)
 
 function resetBatchStats() {
   batchExpected.value = 0
@@ -54,16 +59,25 @@ const selectedIds = ref<Set<string>>(new Set())
 const toast = ref<{ msg: string; type: 'success' | 'error' | 'warning' } | null>(null)
 
 function showToast(msg: string, type: 'success' | 'error' | 'warning' = 'success') {
-  toast.value = { msg, type }
+  const text = type === 'error' ? appendDistillHint(msg) : msg
+  toast.value = { msg: text, type }
   setTimeout(() => {
     toast.value = null
-  }, 4000)
+  }, type === 'error' ? 9000 : 4000)
 }
 
 // ── 生命周期 ─────────────────────────────────────────────────────────────────
 
 onMounted(() => {
   void sessions.loadPage()
+  void api
+    .countAllCards()
+    .then((n) => {
+      libraryCardTotal.value = n
+    })
+    .catch(() => {
+      libraryCardTotal.value = null
+    })
 })
 
 onActivated(() => {
@@ -233,10 +247,32 @@ function openSearchHit(cardId: string, sessionId: string) {
       </div>
     </Transition>
 
-    <!-- 搜索结果 -->
+    <!-- 搜索结果（FTS 知识卡片） -->
     <div v-if="search.query.trim()" class="flex-1 min-h-0 overflow-y-auto space-y-3 pb-4">
       <div class="text-xs text-neutral-500 font-medium">搜索结果（{{ search.results.length }}）</div>
-      <n-empty v-if="!search.results.length" description="未找到匹配内容" class="py-12" />
+      <div v-if="search.searching && !search.results.length" class="flex justify-center py-16">
+        <n-spin size="medium" />
+      </div>
+      <n-empty
+        v-else-if="!search.searching && !search.results.length"
+        class="py-12"
+      >
+        <template #default>
+          <div class="text-center space-y-1 px-4">
+            <template v-if="libraryCardTotal === 0">
+              <p class="text-sm text-neutral-600 dark:text-neutral-300">知识库中暂无笔记</p>
+              <p class="text-xs text-neutral-400">请先同步对话并完成提炼，再使用全文搜索。</p>
+            </template>
+            <template v-else-if="libraryCardTotal != null && libraryCardTotal > 0">
+              <p class="text-sm text-neutral-600 dark:text-neutral-300">未找到包含该关键词的笔记</p>
+              <p class="text-xs text-neutral-400">试试更短的关键词、同义词，或检查拼写。</p>
+            </template>
+            <template v-else>
+              <p class="text-sm text-neutral-600 dark:text-neutral-300">未找到匹配内容</p>
+            </template>
+          </div>
+        </template>
+      </n-empty>
       <div
         v-for="c in search.results"
         :key="c.id"

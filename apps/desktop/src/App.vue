@@ -1,5 +1,12 @@
 <script setup lang="ts">
-import { NConfigProvider, darkTheme, zhCN, dateZhCN } from 'naive-ui'
+import {
+  NConfigProvider,
+  NMessageProvider,
+  NDialogProvider,
+  darkTheme,
+  zhCN,
+  dateZhCN,
+} from 'naive-ui'
 import AppLayout from './components/AppLayout.vue'
 import { useUiStore } from './stores/ui'
 
@@ -9,7 +16,12 @@ const ui = useUiStore()
 <template>
   <!-- NConfigProvider 为 Naive UI 组件提供全局主题 + 中文 locale -->
   <n-config-provider :theme="ui.darkMode ? darkTheme : undefined" :locale="zhCN" :date-locale="dateZhCN">
-    <AppLayout />
+    <!-- useMessage / useDialog（导出确认、Toast 等）依赖以下 Provider -->
+    <n-message-provider>
+      <n-dialog-provider>
+        <AppLayout />
+      </n-dialog-provider>
+    </n-message-provider>
   </n-config-provider>
 </template>
 

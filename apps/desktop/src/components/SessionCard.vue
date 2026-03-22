@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { getCardTypeLabel } from '@xunji/shared'
-import { NTag, NButton, NCheckbox } from 'naive-ui'
+import { NTag, NButton, NCheckbox, NTooltip } from 'naive-ui'
 import type { SessionSummary } from '../types'
 
 const props = defineProps<{
@@ -111,6 +111,59 @@ const actionLoading = computed(
   () => props.analyzing || props.session.status === 'analyzing',
 )
 
+// ── 列表主标题：首条 user 预览优先（与计划 4.1 一致）──────────────────────
+
+/** Tooltip 内文过长时截断，避免 DOM 过大 */
+const TOOLTIP_MAX = 500
+
+function clipForTooltip(s: string, max = TOOLTIP_MAX): string {
+  if (s.length <= max) return s
+  return `${s.slice(0, max)}…`
+}
+
+/**
+ * 路径展示：过长时只显示最后若干段，全文放 Tooltip
+ *   foo/bar/baz.json → …/bar/baz.json（段数少时保持原样）
+ */
+function pathTail(path: string | null | undefined, segments = 2): string {
+  if (!path) return ''
+  const norm = path.replace(/\\/g, '/')
+  const parts = norm.split('/').filter(Boolean)
+  if (parts.length <= segments) return norm
+  return `…/${parts.slice(-segments).join('/')}`
+}
+
+const sessionPathDisplay = computed(
+  () => props.session.rawPath ?? props.session.projectPath ?? null,
+)
+
+/** 列表主标题：首条 user → 项目名/路径 → sessionId 前缀 */
+const listPrimaryTitle = computed(() => {
+  const preview = props.session.firstUserPreview?.trim()
+  if (preview) return preview
+  return (
+    props.session.projectName
+    || props.session.projectPath
+    || props.session.sessionId.slice(0, 14) + (props.session.sessionId.length > 14 ? '…' : '')
+  )
+})
+
+const listPrimaryTooltip = computed(() =>
+  clipForTooltip(
+    props.session.firstUserPreview?.trim()
+    || props.session.projectName
+    || props.session.projectPath
+    || props.session.sessionId,
+  ),
+)
+
+const timeTooltip = computed(() => {
+  const u = props.session.updatedAt
+  if (!u) return '会话时间：—'
+  const readable = u.replace('T', ' ').slice(0, 19)
+  return `会话时间：${readable}（updatedAt）`
+})
+
 /**
  * 会话卡片视觉分层（与 KnowledgeView 条目对齐）：
  * - 默认：半透底 + 固定轻阴影；浅/深用同一套「阴影表层次」逻辑（暗色同样保留 shadow，不靠纯扁平）
@@ -184,40 +237,53 @@ const cardSurfaceClass = computed(() => {
       </div>
 
       <!-- ════════════════════════════════════
-           左列：时间 / 标题 or 项目名 / 消息+大小
+           左列：项目名+时间同行 / 路径与会话 id / 消息+大小
            ════════════════════════════════════ -->
-      <div class="w-44 shrink-0 min-w-0">
-
-        <!-- 时间 -->
-        <div class="text-[11px] text-neutral-400 font-mono tabular-nums">
-          {{ session.updatedAt?.replace('T', ' ').slice(0, 16) ?? '—' }}
-        </div>
-
-        <!-- 已分析：卡片标题（主标题）；未分析：项目名 -->
-        <div class="flex items-center gap-1.5 mt-1 min-w-0">
-          <span :class="sourceIcon" class="w-3.5 h-3.5 text-neutral-400 shrink-0" />
-          <span
-            class="text-sm font-medium truncate transition-colors
-                   group-hover:text-brand-700 dark:group-hover:text-brand-400"
-            :class="isAnalyzed
-              ? 'text-neutral-900 dark:text-neutral-100'
-              : 'text-neutral-700 dark:text-neutral-300'"
-            :title="isAnalyzed
-              ? (session.cardTitle ?? session.projectName ?? '未命名')
-              : (session.projectName ?? session.projectPath ?? '未命名项目')"
-          >
-            <!-- 已分析显示卡片标题，未分析显示项目名 -->
-            <template v-if="isAnalyzed && session.cardTitle">
-              {{ session.cardTitle }}
-            </template>
-            <template v-else>
-              {{ session.projectName || session.projectPath || '未命名项目' }}
-            </template>
+      <div class="w-48 shrink-0 min-w-0">
+        <!-- 项目名与时间同一行；时间 Tooltip 为「会话时间」 -->
+        <div class="flex items-center justify-between gap-2 min-w-0 text-[11px]">
+          <span class="truncate text-neutral-600 dark:text-neutral-300 font-medium">
+            {{ session.projectName || session.projectPath || '未命名项目' }}
           </span>
+          <n-tooltip trigger="hover" :delay="300">
+            <template #trigger>
+              <span class="shrink-0 font-mono tabular-nums text-neutral-400 cursor-default">
+                {{ session.updatedAt?.replace('T', ' ').slice(0, 16) ?? '—' }}
+              </span>
+            </template>
+            {{ timeTooltip }}
+          </n-tooltip>
         </div>
 
-        <!-- 消息数 + 大小 -->
-        <div class="text-[11px] text-neutral-400 mt-0.5 flex items-center gap-2">
+        <!-- 路径（省略末段 + 全文 Tooltip）与会话 ID -->
+        <div class="mt-1 space-y-0.5 text-[10px] text-neutral-400 min-w-0">
+          <n-tooltip
+            v-if="sessionPathDisplay"
+            trigger="hover"
+            placement="top-start"
+            :delay="200"
+          >
+            <template #trigger>
+              <div class="flex items-center gap-1 min-w-0">
+                <span class="i-lucide-folder-open w-3 h-3 shrink-0 opacity-70" />
+                <span class="truncate font-mono">{{ pathTail(sessionPathDisplay) }}</span>
+              </div>
+            </template>
+            {{ sessionPathDisplay }}
+          </n-tooltip>
+          <n-tooltip trigger="hover" :delay="200">
+            <template #trigger>
+              <div class="flex items-center gap-1 min-w-0 font-mono opacity-90">
+                <span class="i-lucide-fingerprint w-3 h-3 shrink-0" />
+                <span class="truncate">{{ session.sessionId }}</span>
+              </div>
+            </template>
+            会话 ID：{{ session.sessionId }}
+          </n-tooltip>
+        </div>
+
+        <div class="text-[11px] text-neutral-400 mt-1 flex items-center gap-2">
+          <span :class="sourceIcon" class="w-3 h-3 opacity-70 shrink-0" />
           <span class="flex items-center gap-0.5">
             <span class="i-lucide-message-circle w-3 h-3" />
             {{ session.messageCount }} 条
@@ -233,6 +299,31 @@ const cardSurfaceClass = computed(() => {
            右内容区：已分析 / 未分析 两态
            ════════════════════════════════════ -->
       <div class="flex-1 min-w-0">
+        <!-- 主标题：首条 user 预览 + Tooltip；已分析时可附「笔记」副标题 -->
+        <div class="mb-1.5 min-w-0">
+          <n-tooltip
+            trigger="hover"
+            placement="top-start"
+            :delay="250"
+          >
+            <template #trigger>
+              <p
+                class="text-sm font-semibold leading-snug text-neutral-900 dark:text-neutral-100 line-clamp-2"
+              >
+                {{ listPrimaryTitle }}
+              </p>
+            </template>
+            <div class="max-w-md whitespace-pre-wrap break-words text-xs">
+              {{ listPrimaryTooltip }}
+            </div>
+          </n-tooltip>
+          <p
+            v-if="isAnalyzed && session.cardTitle"
+            class="text-[11px] text-neutral-500 dark:text-neutral-400 mt-0.5 line-clamp-1"
+          >
+            笔记：{{ session.cardTitle }}
+          </p>
+        </div>
 
         <!-- ── 已分析：三行布局 ── -->
         <template v-if="isAnalyzed">
@@ -299,9 +390,17 @@ const cardSurfaceClass = computed(() => {
                : session.status }}
             </n-tag>
           </div>
-          <p class="text-xs text-neutral-500 dark:text-neutral-400 line-clamp-1 mt-1.5 leading-relaxed">
-            <template v-if="session.status === 'error'">分析失败，点击查看详情或重试。</template>
-            <template v-else>原始对话，点击查看内容或进行知识提炼。</template>
+          <p
+            v-if="session.status === 'error'"
+            class="text-xs text-red-600 dark:text-red-400 line-clamp-3 mt-1.5 leading-relaxed"
+          >
+            {{ session.errorMessage || '分析失败，点击查看详情或重试。' }}
+          </p>
+          <p
+            v-else
+            class="text-xs text-neutral-500 dark:text-neutral-400 line-clamp-1 mt-1.5 leading-relaxed"
+          >
+            原始对话，点击查看内容或进行知识提炼。
           </p>
         </template>
       </div>
