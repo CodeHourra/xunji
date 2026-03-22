@@ -434,15 +434,23 @@ export async function handleInit(
   const mode = typeof params.mode === 'string' ? params.mode : 'api'
 
   if (mode === 'cli') {
-    // CLI 模式
-    if (typeof params.command !== 'string' || !params.command.trim()) {
-      throw new Error('参数缺失或类型错误: CLI 模式需要 command 字段（如 "claude"）')
+    // CLI 模式：command 支持短名（依赖 PATH）或可执行文件绝对路径；统一 trim，避免首尾空格导致 ENOENT
+    const rawCmd = params.command
+    const command = typeof rawCmd === 'string' ? rawCmd.trim() : ''
+    if (!command) {
+      throw new Error('参数缺失或类型错误: CLI 模式需要 command 字段（命令名或可执行文件绝对路径）')
     }
+    // Rust 侧传 extra_args；若将来有其它调用方传 camelCase，一并兼容
+    const extraFromSnake = params.extra_args
+    const extraFromCamel = params.extraArgs
+    const extraArr = Array.isArray(extraFromSnake)
+      ? (extraFromSnake as string[])
+      : Array.isArray(extraFromCamel)
+        ? (extraFromCamel as string[])
+        : []
     const cliConfig: CliProviderConfig = {
-      command: params.command,
-      extraArgs: Array.isArray(params.extra_args)
-        ? (params.extra_args as string[])
-        : [],
+      command,
+      extraArgs: extraArr,
     }
     initCliProvider(cliConfig)
     return { status: 'ok' }
