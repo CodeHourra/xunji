@@ -60,8 +60,8 @@ function messageType(role: string, content: string): 'tool-result' | 'tool-use' 
 
   // ③ assistant 消息中仅有 [Tool: xxx] 标记（无实质文字）→ 工具调用摘要
   if (role === 'assistant') {
-    // 去掉所有 [Tool: xxx] 后，如果剩余内容为空，则为纯工具调用
-    const withoutToolTags = trimmed.replace(/\[Tool:\s*\w+\]/g, '').trim()
+    // 去掉所有 [Tool: …] 后，如果剩余内容为空，则为纯工具调用（工具名可含 _、.、- 等）
+    const withoutToolTags = trimmed.replace(/\[Tool:\s*[^\]]+\]/g, '').trim()
     if (trimmed.includes('[Tool:') && withoutToolTags === '') return 'tool-use'
   }
 
@@ -70,16 +70,18 @@ function messageType(role: string, content: string): 'tool-result' | 'tool-use' 
 
 /** 从 [Tool: Bash] 格式中提取工具名列表 */
 function extractToolNames(content: string): string {
-  const matches = content.match(/\[Tool:\s*(\w+)\]/g) || []
-  return matches.map(m => m.replace(/\[Tool:\s*|\]/g, '')).join(', ') || '工具'
+  const matches = content.match(/\[Tool:\s*([^\]]+)\]/g) || []
+  return matches.map(m => m.replace(/^\[Tool:\s*|\]$/g, '').trim()).join(', ') || '工具'
 }
 
 /**
  * 预处理气泡内容，将 [Tool: xxx] 标记转换为友好的内联 Markdown 格式。
  */
 function preprocessContent(content: string): string {
-  return content
-    .replace(/\[Tool:\s*(\w+)\]/g, '`🔧 $1`')
+  return content.replace(/\[Tool:\s*([^\]]+)\]/g, (_m, name: string) => {
+    const n = String(name).trim()
+    return n ? `\`🔧 ${n}\`` : '`🔧`'
+  })
 }
 </script>
 

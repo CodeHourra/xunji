@@ -347,6 +347,7 @@ fn read_composer_session(
         session_id: composer_id.to_string(),
         project_path: ws_info.project_path.clone(),
         project_name: ws_info.project_name.clone(),
+        analysis_title: None,
         messages,
         raw_path: format!("cursor://composer/{}", composer_id),
         created_at,

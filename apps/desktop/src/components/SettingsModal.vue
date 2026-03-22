@@ -223,8 +223,9 @@ function onClose() {
   emit('update:show', false)
 }
 
-function toggleSource(source: SourceConfigDto) {
-  source.enabled = !source.enabled
+/** 与 n-switch 的受控值一致，避免仅「翻转」与 Naive 传入的新值不同步 */
+function setSourceEnabled(source: SourceConfigDto, enabled: boolean) {
+  source.enabled = enabled
 }
 
 /** 与 `collector/scheduler.rs` 中 `match source.id` 已实现的采集器一致 */
@@ -462,7 +463,8 @@ const extraArgsStr = computed({
                 <span class="leading-relaxed">
                   当前版本已接入采集的数据源：<strong>Claude Code</strong>（<code class="text-[11px]">claude-code</code>，JSONL）、
                   <strong>Cursor</strong>（<code class="text-[11px]">cursor</code>，本地库）、
-                  <strong>CodeBuddy CLI</strong>（<code class="text-[11px]">codebuddy-cli</code>，JSONL，默认关闭，需在设置中启用）。
+                  <strong>CodeBuddy</strong>（<code class="text-[11px]">codebuddy-cli</code>，CodeBuddyExtension 下会话目录，与问渠路径一致；默认关闭，需在设置中启用）。
+                  启用后请先点击<strong>保存</strong>，再点击顶部<strong>同步</strong>；侧栏若选了某一数据源筛选，请点「全部对话」或对应 CodeBuddy 节点以免被过滤。
                   若配置中存在其他 id，侧栏仍可显示品牌名，但<strong>同步时会跳过</strong>，直至后续版本接入采集器。
                 </span>
               </n-alert>
@@ -498,7 +500,7 @@ const extraArgsStr = computed({
                   :value="source.enabled"
                   size="small"
                   class="ml-3 mt-0.5"
-                  @update:value="toggleSource(source)"
+                  @update:value="(v: boolean) => setSourceEnabled(source, v)"
                 />
               </div>
             </div>

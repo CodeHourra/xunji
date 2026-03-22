@@ -100,7 +100,11 @@ async function onExportMarkdown() {
 function analyze() {
   analyzeError.value = null
   if (session.value) session.value.status = 'analyzing'
-  const title = session.value?.projectName ?? session.value?.projectPath ?? props.sessionId
+  const title =
+    session.value?.analysisTitle
+    ?? session.value?.projectName
+    ?? session.value?.projectPath
+    ?? props.sessionId
   queue.enqueue(props.sessionId, title, {
     onLowValue: (result) => {
       if (session.value) {
@@ -192,7 +196,7 @@ const valueColors: Record<string, string> = {
           <div v-if="session" class="flex items-center gap-2 flex-wrap">
             <span :class="sourceIcon" class="w-4 h-4 text-neutral-500 shrink-0" />
             <span class="font-semibold text-neutral-900 dark:text-neutral-100 truncate">
-              {{ session.projectName || session.projectPath || '未命名项目' }}
+              {{ session.analysisTitle || session.projectName || session.projectPath || '未命名项目' }}
             </span>
             <n-tag size="tiny" :bordered="false" :type="statusTagType">{{ statusLabel }}</n-tag>
             <n-tag

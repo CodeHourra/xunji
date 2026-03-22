@@ -40,6 +40,9 @@ pub struct Session {
     pub project_path: Option<String>,
     /// 关联项目名称（从路径推导或手动设置）
     pub project_name: Option<String>,
+    /// 采集或分析阶段的可读标题（如 CodeBuddy 工作区 index 中的会话 name）
+    #[serde(default)]
+    pub analysis_title: Option<String>,
     /// 消息总条数
     pub message_count: i64,
     /// 消息内容的 MD5 摘要，用于变更检测

@@ -5,13 +5,13 @@
 //! normalizer.rs      统一数据格式（NormalizedSession / NormalizedMessage）
 //! claude_code.rs     Claude Code JSONL 解析器
 //! cursor.rs          Cursor SQLite + Lexical 解析器
-//! codebuddy_cli.rs   CodeBuddy CLI JSONL 解析器
+//! codebuddy.rs       CodeBuddy 扩展会话（问渠路径：CodeBuddyExtension → history 下会话目录）
 //! scheduler.rs       采集调度器 + 去重写入 + 同步日志
 //! ```
 
 pub mod normalizer;
 pub mod claude_code;
-pub mod codebuddy_cli;
+pub mod codebuddy;
 pub mod cursor;
 pub mod scheduler;
 

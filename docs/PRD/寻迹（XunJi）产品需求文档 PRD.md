@@ -59,8 +59,8 @@
 |--------|--------|---------|------|---------|
 | P0 | **Claude Code（内网版）** | `~/.claude-internal/projects/{路径hash}/{session-uuid}.jsonl`<br>全局历史：`~/.claude-internal/history.jsonl`<br>子代理：`sessions/{id}/subagents/agent-*.jsonl` | JSONL | ✅ 低 |
 | P0 | **Cursor** | 全局：`~/Library/Application Support/Cursor/User/globalStorage/state.vscdb`（~208MB）<br>工作区：`workspaceStorage/<id>/state.vscdb`（约 196 个）<br>Plan 文件：`~/.cursor/plans/*.plan.md` | SQLite + Lexical 富文本 | ⚠️ 高 |
-| P1 | **CodeBuddy CLI** | `~/.codebuddy/projects/{项目名}/{session-uuid}.jsonl` | JSONL | ✅ 低 |
-| P1 | **CodeBuddy JetBrains 插件** | 完整会话：`~/Library/Application Support/CodeBuddyExtension/Data/{USER_ID}/CodeBuddyIDE/{USER_ID}/history/`<br>索引库：`~/Library/Application Support/com.tencent.copilot/copilot_index.db`<br>问题历史：`~/Library/Application Support/JetBrains/{IDE版本}/options/tencent-copilot-question-history.xml` | JSON + SQLite + XML | ✅ 中等 |
+| P1 | **CodeBuddy（扩展 / IDE，与问渠扫描一致）** | 根目录：macOS `~/Library/Application Support/CodeBuddyExtension/Data/`，Linux `~/.local/share/CodeBuddyExtension/`（见问渠 `scanner/codebuddy.py`）。会话落盘在目录树中名为 `history` 的路径之下：`.../history/{workspace_id}/{conversation_id}/`，含 `index.json`（消息索引）与 `messages/*.json`（单条消息）。**不作为**主会话来源：`~/.codebuddy/projects/*.jsonl`（CLI JSONL，与扩展存储不同） | JSON | ✅ 中等 |
+| P1 | **CodeBuddy 补充数据** | 索引库：`~/Library/Application Support/com.tencent.copilot/copilot_index.db`<br>问题历史：`~/Library/Application Support/JetBrains/{IDE版本}/options/tencent-copilot-question-history.xml` | SQLite + XML | ✅ 中等 |
 | P2 | **Windsurf** | `~/Library/Application Support/Windsurf/User/workspaceStorage/` | SQLite | 中 |
 | P2 | **GitHub Copilot** | VSCode workspaceStorage | SQLite | 中 |
 
@@ -94,7 +94,9 @@
 - Plan 文件结构清晰：YAML frontmatter 含 `name`、`overview`、`todos`（含 status/dependencies）
 - ❌ 无 token 统计，时间戳为毫秒时间戳
 
-**CodeBuddy CLI**
+**CodeBuddy CLI（独立 JSONL 流，与扩展会话目录不同）**
+
+> 寻迹当前版本对 CodeBuddy 的采集实现为 **CodeBuddyExtension** 根目录下的会话目录（`index.json` + `messages/`，见上表）；下表为 CLI 侧 JSONL 行格式，供对照，**非**当前采集主路径。
 
 ```json
 {

@@ -4,7 +4,7 @@
 //! collect_all()
 //!   ├── Claude Code Collector → Vec<NormalizedSession>
 //!   ├── Cursor Collector       → Vec<NormalizedSession>
-//!   ├── CodeBuddy CLI Collector→ Vec<NormalizedSession>
+//!   ├── CodeBuddy Collector      → Vec<NormalizedSession>
 //!   └── (future: other collectors...)
 //!           │
 //!           ▼
@@ -22,7 +22,7 @@ use crate::storage::models::NewMessage;
 use crate::storage::Database;
 
 use super::claude_code::ClaudeCodeCollector;
-use super::codebuddy_cli::CodeBuddyCliCollector;
+use super::codebuddy::CodeBuddyCollector;
 use super::cursor::CursorCollector;
 use super::normalizer::NormalizedSession;
 
@@ -55,6 +55,17 @@ impl<'a> CollectorScheduler<'a> {
     pub fn collect_all(&self) -> SyncResult {
         let mut total_result = SyncResult::default();
 
+        let enabled_ids: Vec<&str> = self
+            .config
+            .enabled_sources()
+            .iter()
+            .map(|s| s.id.as_str())
+            .collect();
+        log::info!(
+            "本次同步将采集的数据源 id 列表（仅已启用）: {:?}；未在列表中的数据源不会扫描",
+            enabled_ids
+        );
+
         for source in self.config.enabled_sources() {
             log::info!("开始采集数据源: {} ({})", source.name, source.id);
             let scan_dirs = source.resolved_scan_dirs();
@@ -69,7 +80,7 @@ impl<'a> CollectorScheduler<'a> {
                     collector.collect()
                 }
                 "codebuddy-cli" => {
-                    let collector = CodeBuddyCliCollector::new(scan_dirs);
+                    let collector = CodeBuddyCollector::new(scan_dirs);
                     collector.collect()
                 }
                 other => {
@@ -172,6 +183,7 @@ impl<'a> CollectorScheduler<'a> {
                     &session.raw_path,
                     &session.created_at,
                     &session.updated_at,
+                    session.analysis_title.as_deref(),
                 )?;
 
                 self.db.insert_messages(&db_id, &to_new_messages(session))?;
@@ -186,7 +198,13 @@ impl<'a> CollectorScheduler<'a> {
                     self.db.delete_session_messages(&existing_db_id)?;
                     self.db.insert_messages(&existing_db_id, &to_new_messages(session))?;
                     self.db.mark_has_updates(&existing_db_id)?;
-                    self.db.update_session_message_count(&existing_db_id, message_count)?;
+                    self.db.update_session_resync_metadata(
+                        &existing_db_id,
+                        message_count,
+                        session.project_path.as_deref(),
+                        session.project_name.as_deref(),
+                        session.analysis_title.as_deref(),
+                    )?;
                     log::info!(
                         "会话消息已更新: session_id={}, {} → {} 条消息",
                         session.session_id,

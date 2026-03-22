@@ -133,6 +133,7 @@ impl ClaudeCodeCollector {
                             session_id,
                             project_path: final_project_path,
                             project_name: final_project_name,
+                            analysis_title: None,
                             messages: parse_result.messages,
                             raw_path: file_path.to_string_lossy().to_string(),
                             created_at,

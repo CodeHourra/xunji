@@ -76,6 +76,8 @@ export interface Session {
   sourceHost: string
   projectPath: string | null
   projectName: string | null
+  /** 采集侧可读标题（如 CodeBuddy 工作区 index 中的会话 name），未提炼笔记前可用于详情/列表 */
+  analysisTitle?: string | null
   messageCount: number
   contentHash: string | null
   rawPath: string | null

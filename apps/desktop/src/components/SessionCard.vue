@@ -137,10 +137,17 @@ const sessionPathDisplay = computed(
   () => props.session.rawPath ?? props.session.projectPath ?? null,
 )
 
-/** 列表主标题：首条 user → 项目名/路径 → sessionId 前缀 */
+/**
+ * 列表主标题：
+ * - 未分析：优先 cardTitle（SQL 中 COALESCE(card.title, analysis_title)），避免 CodeBuddy 首条 user 为 Workspace 元数据占满标题
+ * - 已分析：仍以首条 user 预览为主（与「笔记」副标题搭配）
+ */
 const listPrimaryTitle = computed(() => {
   const preview = props.session.firstUserPreview?.trim()
+  const title = props.session.cardTitle?.trim()
+  if (!isAnalyzed.value && title) return title
   if (preview) return preview
+  if (title) return title
   return (
     props.session.projectName
     || props.session.projectPath
@@ -151,6 +158,7 @@ const listPrimaryTitle = computed(() => {
 const listPrimaryTooltip = computed(() =>
   clipForTooltip(
     props.session.firstUserPreview?.trim()
+    || props.session.cardTitle?.trim()
     || props.session.projectName
     || props.session.projectPath
     || props.session.sessionId,

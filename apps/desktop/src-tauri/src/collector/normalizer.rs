@@ -15,6 +15,8 @@ pub struct NormalizedSession {
     pub project_path: Option<String>,
     /// 项目名称（从路径末段推导）
     pub project_name: Option<String>,
+    /// 采集阶段可填写的会话展示标题（如 CodeBuddy 工作区 index 中的会话 name），写入 `sessions.analysis_title`
+    pub analysis_title: Option<String>,
     /// 该会话包含的消息列表（按时间顺序）
     pub messages: Vec<NormalizedMessage>,
     /// 原始数据文件路径（如 JSONL 文件位置）

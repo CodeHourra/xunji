@@ -168,17 +168,18 @@ impl Database {
         raw_path: &str,
         created_at: &str,
         updated_at: &str,
+        analysis_title: Option<&str>,
     ) -> DbResult<String> {
         let id = Uuid::new_v4().to_string();
         let conn = self.conn();
         let rows = conn.execute(
             "INSERT OR IGNORE INTO sessions (
                 id, source_id, session_id, source_host, project_path, project_name,
-                message_count, content_hash, raw_path, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                message_count, content_hash, raw_path, created_at, updated_at, analysis_title
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             params![
                 &id, source_id, session_id, source_host, project_path, project_name,
-                message_count, content_hash, raw_path, created_at, updated_at,
+                message_count, content_hash, raw_path, created_at, updated_at, analysis_title,
             ],
         )?;
 
@@ -230,7 +231,7 @@ impl Database {
         conn.query_row(
             "SELECT id, source_id, session_id, source_host, project_path, project_name,
                     message_count, content_hash, raw_path, created_at, updated_at,
-                    status, value, has_updates, analyzed_at, error_message
+                    status, value, has_updates, analyzed_at, error_message, analysis_title
              FROM sessions WHERE id = ?1",
             params![id],
             |row| {
@@ -251,6 +252,7 @@ impl Database {
                     has_updates: row.get::<_, i64>(13)? != 0,
                     analyzed_at: row.get(14)?,
                     error_message: row.get(15)?,
+                    analysis_title: row.get(16)?,
                 })
             },
         )
@@ -470,6 +472,25 @@ impl Database {
         let n = self.conn().execute(
             "UPDATE sessions SET message_count = ?1 WHERE id = ?2",
             params![count, id],
+        )?;
+        if n == 0 {
+            return Err(DbError::NotFound(id.to_string()));
+        }
+        Ok(())
+    }
+
+    /// 增量同步后刷新会话元数据（CodeBuddy 等数据源重扫时更新项目名与展示标题）
+    pub fn update_session_resync_metadata(
+        &self,
+        id: &str,
+        message_count: i32,
+        project_path: Option<&str>,
+        project_name: Option<&str>,
+        analysis_title: Option<&str>,
+    ) -> DbResult<()> {
+        let n = self.conn().execute(
+            "UPDATE sessions SET message_count = ?1, project_path = ?2, project_name = ?3, analysis_title = ?4 WHERE id = ?5",
+            params![message_count, project_path, project_name, analysis_title, id],
         )?;
         if n == 0 {
             return Err(DbError::NotFound(id.to_string()));
