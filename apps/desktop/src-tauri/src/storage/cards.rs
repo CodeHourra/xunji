@@ -62,6 +62,9 @@ fn card_from_row(row: &Row<'_>) -> rusqlite::Result<Card> {
         updated_at: row.get(17)?,
         tags: Vec::new(),
         tech_stack,
+        // 19–20：与 `get_card` 中 JOIN sessions 列顺序一致
+        source_session_external_id: row.get(19)?,
+        source_session_path: row.get(20)?,
     })
 }
 
@@ -211,11 +214,14 @@ impl Database {
         let conn = self.conn();
         let mut card = conn
             .query_row(
-                "SELECT id, session_id, title, type, value, summary, note, \
-                 category_id, memory, skill, source_name, project_name, \
-                 prompt_tokens, completion_tokens, cost_yuan, feedback, \
-                 created_at, updated_at, tech_stack \
-                 FROM cards WHERE id = ?",
+                "SELECT c.id, c.session_id, c.title, c.type, c.value, c.summary, c.note, \
+                 c.category_id, c.memory, c.skill, c.source_name, c.project_name, \
+                 c.prompt_tokens, c.completion_tokens, c.cost_yuan, c.feedback, \
+                 c.created_at, c.updated_at, c.tech_stack, \
+                 sess.session_id, COALESCE(sess.raw_path, sess.project_path) \
+                 FROM cards c \
+                 INNER JOIN sessions sess ON c.session_id = sess.id \
+                 WHERE c.id = ?",
                 params![id],
                 |r| card_from_row(r),
             )
@@ -272,6 +278,22 @@ impl Database {
             page,
             page_size,
         })
+    }
+
+    /// 库内卡片总数（不受筛选；供「导出全部」前提示条数）
+    pub fn count_all_cards(&self) -> DbResult<u64> {
+        let n: i64 = self
+            .conn()
+            .query_row("SELECT COUNT(*) FROM cards", [], |r| r.get(0))?;
+        Ok(n.max(0) as u64)
+    }
+
+    /// 全部卡片 id（按创建时间升序，批量导出顺序稳定）
+    pub fn list_all_card_ids(&self) -> DbResult<Vec<String>> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare("SELECT id FROM cards ORDER BY created_at ASC")?;
+        let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(DbError::from)
     }
 
     /// 删除卡片（级联清理关联表和 FTS 索引，不存在时返回 NotFound）

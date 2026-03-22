@@ -5,12 +5,16 @@ defineProps<{
   mode: 'note' | 'chat'
   /** 重新分析进行中 */
   analyzing?: boolean
+  /** 导出 Markdown 写入中 */
+  exportLoading?: boolean
 }>()
 
 const emit = defineEmits<{
   'update:mode': [m: 'note' | 'chat']
   close: []
   reanalyze: []
+  /** 导出当前笔记为 .md（由父组件调 Tauri 对话框） */
+  exportMarkdown: []
 }>()
 </script>
 
@@ -53,6 +57,18 @@ const emit = defineEmits<{
           重新分析
         </span>
         <span v-else>分析中…</span>
+      </n-button>
+      <n-button
+        size="small"
+        secondary
+        :loading="exportLoading"
+        :disabled="analyzing || exportLoading"
+        @click="emit('exportMarkdown')"
+      >
+        <span class="inline-flex items-center gap-1">
+          <span class="i-lucide-download w-3.5 h-3.5" />
+          导出 Markdown
+        </span>
       </n-button>
     </div>
     <n-button size="small" quaternary :disabled="analyzing" @click="emit('close')">

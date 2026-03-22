@@ -10,12 +10,15 @@ defineProps<{
   mode: 'note' | 'chat'
   /** 重新分析进行中 */
   analyzing?: boolean
+  /** 导出 Markdown 进行中 */
+  exportLoading?: boolean
 }>()
 
 const emit = defineEmits<{
   'update:mode': [m: 'note' | 'chat']
   close: []
   reanalyze: []
+  exportMarkdown: []
 }>()
 </script>
 
@@ -37,13 +40,17 @@ const emit = defineEmits<{
       :prompt-tokens="card.promptTokens"
       :completion-tokens="card.completionTokens"
       :cost-yuan="card.costYuan"
+      :source-session-path="card.sourceSessionPath"
+      :source-session-external-id="card.sourceSessionExternalId"
     />
     <ActionBar
       :mode="mode"
       :analyzing="analyzing"
+      :export-loading="exportLoading"
       @update:mode="emit('update:mode', $event)"
       @close="emit('close')"
       @reanalyze="emit('reanalyze')"
+      @export-markdown="emit('exportMarkdown')"
     />
   </article>
 </template>

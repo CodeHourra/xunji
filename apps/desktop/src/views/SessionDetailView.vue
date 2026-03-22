@@ -2,11 +2,13 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
-import { NButton, NResult, NSpin, NTag, NTooltip } from 'naive-ui'
+import { NButton, NResult, NSpin, NTag, NTooltip, useMessage } from 'naive-ui'
 import NoteCard from '../components/NoteCard.vue'
 import ChatReplay from '../components/ChatReplay.vue'
 import { useAnalysisQueueStore } from '../stores/analysisQueue'
 import { api } from '../lib/tauri'
+import { exportOneCardToFile } from '../lib/cardExport'
+import { appendDistillHint } from '../lib/distillHints'
 import type { Card, Message, Session } from '../types'
 
 const props = defineProps<{
@@ -15,6 +17,7 @@ const props = defineProps<{
 
 const route = useRoute()
 const router = useRouter()
+const message = useMessage()
 
 const queue = useAnalysisQueueStore()
 const { currentTask, tasks } = storeToRefs(queue)
@@ -25,6 +28,7 @@ const card = ref<Card | null>(null)
 const loading = ref(true)
 const analyzeError = ref<string | null>(null)
 const loadError = ref<string | null>(null)
+const exportMdLoading = ref(false)
 const mode = ref<'note' | 'chat'>('note')
 
 /** 当前会话是否正在执行 distill（队列头） */
@@ -80,6 +84,19 @@ function close() {
   void router.push({ name: 'sessions' })
 }
 
+async function onExportMarkdown() {
+  if (!card.value) return
+  exportMdLoading.value = true
+  try {
+    const ok = await exportOneCardToFile(card.value.id, card.value.title)
+    if (ok) message.success('已导出 Markdown')
+  } catch (e) {
+    message.error(e instanceof Error ? e.message : String(e))
+  } finally {
+    exportMdLoading.value = false
+  }
+}
+
 function analyze() {
   analyzeError.value = null
   if (session.value) session.value.status = 'analyzing'
@@ -111,7 +128,7 @@ function analyze() {
       })
     },
     onError: (msg) => {
-      analyzeError.value = msg
+      analyzeError.value = appendDistillHint(msg)
     },
   })
 }
@@ -188,7 +205,7 @@ const valueColors: Record<string, string> = {
               {{ session.value }}
             </n-tag>
           </div>
-          <div v-if="session" class="flex items-center gap-3 mt-1 text-[11px] text-neutral-400">
+          <div v-if="session" class="flex items-center gap-3 mt-1 text-[11px] text-neutral-400 flex-wrap">
             <span class="flex items-center gap-1">
               <span class="i-lucide-calendar w-3 h-3" />
               {{ session.updatedAt?.replace('T', ' ').slice(0, 16) }}
@@ -197,10 +214,30 @@ const valueColors: Record<string, string> = {
               <span class="i-lucide-message-circle w-3 h-3" />
               {{ session.messageCount }} 条消息
             </span>
-            <span class="flex items-center gap-1 font-mono opacity-70" :title="session.sessionId">
-              <span class="i-lucide-hash w-3 h-3" />
-              {{ session.sessionId.slice(0, 12) }}…
-            </span>
+          </div>
+          <!-- 会话路径与数据源侧会话 ID（v0.1.1 信息可见性） -->
+          <div
+            v-if="session"
+            class="mt-2 text-[11px] text-neutral-500 dark:text-neutral-400 space-y-1.5 max-w-3xl"
+          >
+            <div class="flex items-start gap-1.5 min-w-0">
+              <span class="i-lucide-folder-open w-3.5 h-3.5 shrink-0 mt-0.5 opacity-80" />
+              <n-tooltip trigger="hover" placement="top-start" :delay="200">
+                <template #trigger>
+                  <span class="break-all line-clamp-2 cursor-default">
+                    {{ session.rawPath || session.projectPath || '—' }}
+                  </span>
+                </template>
+                <span class="text-xs whitespace-pre-wrap break-all">{{ session.rawPath || session.projectPath || '—' }}</span>
+              </n-tooltip>
+            </div>
+            <div class="flex items-start gap-1.5 min-w-0 font-mono text-[10px]">
+              <span class="i-lucide-fingerprint w-3.5 h-3.5 shrink-0 mt-0.5 opacity-80" />
+              <div class="min-w-0">
+                <span class="text-neutral-400 mr-1">会话 ID</span>
+                <span class="text-neutral-600 dark:text-neutral-300 break-all select-all">{{ session.sessionId }}</span>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -271,9 +308,11 @@ const valueColors: Record<string, string> = {
             :card="card"
             :mode="mode"
             :analyzing="analyzing"
+            :export-loading="exportMdLoading"
             @update:mode="mode = $event"
             @close="close"
             @reanalyze="analyze"
+            @export-markdown="onExportMarkdown"
           >
             <template #chat>
               <div class="max-h-[520px] overflow-y-auto pr-1">

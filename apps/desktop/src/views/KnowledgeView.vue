@@ -4,11 +4,22 @@
  *
  * 视图模式持久化：localStorage key `xunji:knowledgeViewMode`
  */
-import { onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { NSpin, NEmpty, NTag, NRadioGroup, NRadioButton } from 'naive-ui'
+import {
+  NSpin,
+  NEmpty,
+  NTag,
+  NRadioGroup,
+  NRadioButton,
+  NCheckbox,
+  NButton,
+  useMessage,
+  useDialog,
+} from 'naive-ui'
 import { getCardTypeLabel } from '@xunji/shared'
 import { api } from '../lib/tauri'
+import { exportAllCardsToDir, exportSelectedCards } from '../lib/cardExport'
 import type { CardSummary } from '../types'
 import { useFiltersStore } from '../stores/filters'
 import Pagination from '../components/Pagination.vue'
@@ -17,14 +28,21 @@ const VIEW_MODE_KEY = 'xunji:knowledgeViewMode'
 type ViewMode = 'list' | 'card'
 
 const router = useRouter()
+const message = useMessage()
+const dialog = useDialog()
 const filters = useFiltersStore()
 const items = ref<CardSummary[]>([])
 const total = ref(0)
 const page = ref(1)
 const pageSize = ref(20)
 const loading = ref(false)
+/** 多选导出：跨分页保留 id */
+const selectedIds = ref(new Set<string>())
+const exportBusy = ref(false)
 
 const viewMode = ref<ViewMode>('list')
+
+const selectedCount = computed(() => selectedIds.value.size)
 
 watch(viewMode, (v) => {
   localStorage.setItem(VIEW_MODE_KEY, v)
@@ -82,6 +100,67 @@ function setPageSize(n: number) {
 function formatTime(iso: string) {
   return iso?.replace('T', ' ').slice(0, 16) ?? '—'
 }
+
+function toggleSelect(id: string, checked: boolean) {
+  const next = new Set(selectedIds.value)
+  if (checked) next.add(id)
+  else next.delete(id)
+  selectedIds.value = next
+}
+
+function selectAllOnPage() {
+  const next = new Set(selectedIds.value)
+  for (const c of items.value) next.add(c.id)
+  selectedIds.value = next
+}
+
+function clearSelection() {
+  selectedIds.value = new Set()
+}
+
+async function onExportSelected() {
+  const ids = [...selectedIds.value]
+  if (!ids.length) {
+    message.warning('请先勾选要导出的笔记')
+    return
+  }
+  exportBusy.value = true
+  try {
+    const r = await exportSelectedCards(ids)
+    if (r.ok && r.count != null) message.success(`已导出 ${r.count} 条笔记`)
+  } catch (e) {
+    message.error(e instanceof Error ? e.message : String(e))
+  } finally {
+    exportBusy.value = false
+  }
+}
+
+function onExportAll() {
+  void (async () => {
+    const total = await api.countAllCards()
+    if (total === 0) {
+      message.info('知识库暂无笔记')
+      return
+    }
+    dialog.warning({
+      title: '导出全部笔记',
+      content: `将导出库内全部 ${total} 条笔记到所选文件夹，不受当前列表筛选影响。`,
+      positiveText: '选择文件夹',
+      negativeText: '取消',
+      onPositiveClick: async () => {
+        exportBusy.value = true
+        try {
+          const r = await exportAllCardsToDir()
+          if (r.ok && r.count != null) message.success(`已导出 ${r.count} 条笔记`)
+        } catch (e) {
+          message.error(e instanceof Error ? e.message : String(e))
+        } finally {
+          exportBusy.value = false
+        }
+      },
+    })
+  })()
+}
 </script>
 
 <template>
@@ -100,20 +179,54 @@ function formatTime(iso: string) {
           共 {{ total }} 条 · 列表 / 卡片切换
         </p>
       </div>
-      <n-radio-group v-model:value="viewMode" size="small" class="shrink-0">
-        <n-radio-button value="list">
-          <span class="inline-flex items-center gap-1.5">
-            <span class="i-lucide-list w-3.5 h-3.5" />
-            列表
-          </span>
-        </n-radio-button>
-        <n-radio-button value="card">
-          <span class="inline-flex items-center gap-1.5">
-            <span class="i-lucide-layout-grid w-3.5 h-3.5" />
-            卡片
-          </span>
-        </n-radio-button>
-      </n-radio-group>
+      <div class="flex flex-wrap items-center gap-2 justify-end">
+        <div class="flex flex-wrap gap-1.5 items-center">
+          <span v-if="selectedCount" class="text-[11px] text-neutral-500">已选 {{ selectedCount }} 条</span>
+          <n-button size="tiny" secondary :disabled="!items.length" @click="selectAllOnPage">
+            全选当页
+          </n-button>
+          <n-button size="tiny" quaternary :disabled="!selectedCount" @click="clearSelection">
+            清除选择
+          </n-button>
+          <n-button
+            size="small"
+            :loading="exportBusy"
+            :disabled="exportBusy || !selectedCount"
+            @click="onExportSelected"
+          >
+            <span class="inline-flex items-center gap-1">
+              <span class="i-lucide-folder-output w-3.5 h-3.5" />
+              导出所选
+            </span>
+          </n-button>
+          <n-button
+            type="primary"
+            size="small"
+            :loading="exportBusy"
+            :disabled="exportBusy"
+            @click="onExportAll"
+          >
+            <span class="inline-flex items-center gap-1">
+              <span class="i-lucide-archive w-3.5 h-3.5" />
+              导出全部笔记
+            </span>
+          </n-button>
+        </div>
+        <n-radio-group v-model:value="viewMode" size="small" class="shrink-0">
+          <n-radio-button value="list">
+            <span class="inline-flex items-center gap-1.5">
+              <span class="i-lucide-list w-3.5 h-3.5" />
+              列表
+            </span>
+          </n-radio-button>
+          <n-radio-button value="card">
+            <span class="inline-flex items-center gap-1.5">
+              <span class="i-lucide-layout-grid w-3.5 h-3.5" />
+              卡片
+            </span>
+          </n-radio-button>
+        </n-radio-group>
+      </div>
     </header>
 
     <!-- 内容区：清新底色 + 内部条目统一悬浮阴影（无 hover 抬升） -->
@@ -140,7 +253,13 @@ function formatTime(iso: string) {
               class="w-1 shrink-0 bg-gradient-to-b from-emerald-400 to-teal-500"
               aria-hidden="true"
             />
-            <div class="flex-1 min-w-0 py-2 pl-2.5 pr-3">
+            <div class="shrink-0 flex items-center pl-2 py-2" @click.stop>
+              <n-checkbox
+                :checked="selectedIds.has(c.id)"
+                @update:checked="(v: boolean) => toggleSelect(c.id, v)"
+              />
+            </div>
+            <div class="flex-1 min-w-0 py-2 pl-1 pr-3">
               <div class="flex items-center justify-between gap-2">
                 <h2 class="text-[13px] font-semibold text-neutral-800 dark:text-neutral-100 line-clamp-1 leading-tight">
                   {{ c.title }}
@@ -194,20 +313,28 @@ function formatTime(iso: string) {
             class="group flex flex-col text-left rounded-xl border border-white/70 dark:border-emerald-900/50 bg-white/85 dark:bg-neutral-900/75 min-h-[132px] p-3 shadow-[0_2px_14px_-2px_rgba(16,185,129,0.18)] dark:shadow-[0_2px_16px_-4px_rgba(0,0,0,0.45)] backdrop-blur-sm hover:border-emerald-300/55 dark:hover:border-emerald-700/45 transition-[border-color] duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/40"
             @click="open(c)"
           >
-            <div class="flex items-center justify-between gap-2">
-              <div class="flex flex-wrap gap-1 min-w-0">
-                <n-tag v-if="c.type" size="tiny" :bordered="false" type="success" class="!text-[10px] !px-1.5 !py-0">
-                  {{ getCardTypeLabel(c.type) }}
-                </n-tag>
-                <n-tag
-                  v-if="c.value"
-                  size="tiny"
-                  :bordered="false"
-                  :type="c.value === 'high' ? 'success' : c.value === 'medium' ? 'warning' : 'default'"
-                  class="!text-[10px] !px-1.5 !py-0"
-                >
-                  {{ c.value }}
-                </n-tag>
+            <div class="flex items-start justify-between gap-2">
+              <div class="flex items-start gap-2 min-w-0 flex-1">
+                <div class="shrink-0 pt-0.5" @click.stop>
+                  <n-checkbox
+                    :checked="selectedIds.has(c.id)"
+                    @update:checked="(v: boolean) => toggleSelect(c.id, v)"
+                  />
+                </div>
+                <div class="flex flex-wrap gap-1 min-w-0">
+                  <n-tag v-if="c.type" size="tiny" :bordered="false" type="success" class="!text-[10px] !px-1.5 !py-0">
+                    {{ getCardTypeLabel(c.type) }}
+                  </n-tag>
+                  <n-tag
+                    v-if="c.value"
+                    size="tiny"
+                    :bordered="false"
+                    :type="c.value === 'high' ? 'success' : c.value === 'medium' ? 'warning' : 'default'"
+                    class="!text-[10px] !px-1.5 !py-0"
+                  >
+                    {{ c.value }}
+                  </n-tag>
+                </div>
               </div>
               <time
                 class="text-[10px] text-emerald-700/65 dark:text-emerald-500/80 font-mono tabular-nums shrink-0"
