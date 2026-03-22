@@ -18,6 +18,8 @@
 
 ```
 xunji/
+├── CHANGELOG.md           # 更新日志（唯一维护源，关于页经 sync:changelog 同步）
+├── scripts/               # 根目录脚本（如 sync-changelog.mjs）
 ├── apps/desktop/          # Tauri 桌面应用
 │   ├── src-tauri/         # Rust 后端
 │   └── src/               # Vue 3 前端
@@ -33,6 +35,9 @@ xunji/
 ```bash
 # 安装依赖
 npm install
+
+# 更新日志：编辑根目录 CHANGELOG.md 后同步到关于页数据源（构建 tauri 前也会自动执行）
+npm run sync:changelog
 
 # 启动开发模式
 cd apps/desktop
