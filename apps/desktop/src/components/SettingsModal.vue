@@ -5,7 +5,7 @@
  * 配置项：
  * 1. 提炼引擎
  *    - API 模式：provider / base_url / api_key / model / timeout
- *    - CLI 模式：command（claude / gemini / codex 等）/ extra_args
+ *    - CLI 模式：command（短命令名或可执行文件绝对路径）/ extra_args
  * 2. 数据源
  *    - 启用/禁用各数据源
  */
@@ -29,6 +29,10 @@ const loading = ref(false)
 const saving = ref(false)
 const errorMsg = ref('')
 const successMsg = ref('')
+/** 设置页：CLI「自动检测」进行中 */
+const cliProbing = ref(false)
+/** 自动检测后的提示（成功 / 未找到 / 失败） */
+const cliProbeHint = ref('')
 
 // 工作副本：从后端加载后复制，保存时提交
 const workingConfig = ref<AppConfigDto | null>(null)
@@ -93,10 +97,36 @@ async function loadConfig() {
       cfg.distiller.cli = { command: 'claude', extraArgs: [] }
     }
     workingConfig.value = cfg
+    cliProbeHint.value = ''
   } catch (e) {
     errorMsg.value = `配置加载失败: ${e}`
   } finally {
     loading.value = false
+  }
+}
+
+/**
+ * 调用 Rust：在登录 shell 下执行与终端一致的 `command -v`，按优先级填入第一个解析到的绝对路径。
+ * 若均失败，提示用户用手动路径（与 PATH 受限的桌面环境有关）。
+ */
+async function onProbeCli() {
+  if (!workingConfig.value?.distiller.cli) return
+  cliProbeHint.value = ''
+  cliProbing.value = true
+  try {
+    const rows = await api.probeCliTools()
+    const hit = rows.find((r) => r.resolvedPath)
+    if (hit?.resolvedPath) {
+      workingConfig.value.distiller.cli.command = hit.resolvedPath
+      cliProbeHint.value = `已填入 ${hit.name}：${hit.resolvedPath}`
+    } else {
+      cliProbeHint.value =
+        '未在登录 shell 的 PATH 中找到常见 CLI。若终端可用，请手动填写「command -v 命令名」输出的绝对路径并保存。'
+    }
+  } catch (e) {
+    cliProbeHint.value = `检测失败：${e}`
+  } finally {
+    cliProbing.value = false
   }
 }
 
@@ -289,20 +319,51 @@ const extraArgsStr = computed({
               <!-- CLI 模式配置 -->
               <template v-else-if="distillerMode === 'cli' && workingConfig.distiller.cli">
                 <n-alert type="info" :bordered="false" class="!text-xs">
-                  调用本地已安装的 AI 编程 CLI 工具（如 <code>claude</code>、<code>gemini</code>），
-                  使用 <code>-p</code> 非交互参数，输出结果从 stdout 读取。
+                  <div class="space-y-1.5">
+                    <p>
+                      调用本机已安装的 AI 编程 CLI（如 <code>claude</code>、<code>gemini</code>），使用
+                      <code>-p</code> 非交互参数，从 stdout 读取输出。
+                    </p>
+                    <p class="text-neutral-500 dark:text-neutral-400">
+                      从桌面图标启动时，应用继承的 <strong>PATH 往往比终端少</strong>（例如未加载 nvm）。
+                      请先点「自动检测」；若仍失败，在终端执行
+                      <code class="px-0.5">command -v &lt;命令名&gt;</code>，
+                      将打印出的<strong>绝对路径</strong>粘贴到下方，并务必点击「保存」。
+                    </p>
+                  </div>
                 </n-alert>
 
                 <n-form size="small" label-placement="left" label-width="80" class="mt-3">
-                  <n-form-item label="命令名">
+                  <n-form-item label="命令或路径">
                     <n-space vertical :size="4" style="width: 100%">
-                      <n-input
-                        v-model:value="workingConfig.distiller.cli.command"
-                        placeholder="claude"
-                      />
+                      <n-space :size="8" align="center" style="width: 100%; flex-wrap: wrap">
+                        <n-input
+                          v-model:value="workingConfig.distiller.cli.command"
+                          placeholder="claude 或 /path/to/cli"
+                          style="min-width: 200px; flex: 1"
+                        />
+                        <n-button
+                          size="small"
+                          secondary
+                          :loading="cliProbing"
+                          @click="onProbeCli"
+                        >
+                          自动检测
+                        </n-button>
+                      </n-space>
+                      <p v-if="cliProbeHint" class="text-xs text-neutral-500 dark:text-neutral-400 m-0">
+                        {{ cliProbeHint }}
+                      </p>
                       <div class="flex flex-wrap gap-1.5 mt-1">
                         <n-tag
-                          v-for="cmd in ['claude', 'gemini', 'codex']"
+                          v-for="cmd in [
+                            'claude-internal',
+                            'gemini-internal',
+                            'codex-internal',
+                            'claude',
+                            'gemini',
+                            'codex',
+                          ]"
                           :key="cmd"
                           size="small"
                           :type="workingConfig.distiller.cli.command === cmd ? 'primary' : 'default'"

@@ -50,7 +50,7 @@ pub struct ApiConfigDto {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CliConfigDto {
-    /// CLI 命令名（如 "claude"、"gemini"、"codex"）
+    /// CLI 可执行文件名（如 "claude"）或本机绝对路径（如 nvm 下的 shim）
     pub command: String,
     /// 附加参数
     pub extra_args: Vec<String>,
@@ -173,6 +173,13 @@ pub async fn save_config(
 ) -> Result<(), String> {
     let new_config = AppConfig::from(config);
 
+    // 便于排查：确认落盘的 CLI command 是否为绝对路径（与 sidecar 报错中的引号内容应一致）
+    if new_config.distiller.mode == "cli" {
+        if let Some(ref cli) = new_config.distiller.cli {
+            log::info!("保存提炼配置 CLI: command={}", cli.command);
+        }
+    }
+
     // 先写磁盘，成功后再更新内存（保证两者一致）
     let path = AppConfig::default_path();
     new_config.save(&path).map_err(|e| format!("配置保存失败: {}", e))?;
@@ -187,4 +194,21 @@ pub async fn save_config(
 
     log::info!("配置已热更新");
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 确认前端 camelCase JSON 中长路径 command 不会被截断（若失败则 IPC 反序列化有问题）
+    #[test]
+    fn cli_config_dto_deserializes_abs_path_from_frontend_json() {
+        let json = r#"{"command":"/Users/foo/.nvm/versions/node/v20.19.4/bin/claude-internal","extraArgs":[]}"#;
+        let dto: CliConfigDto = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            dto.command,
+            "/Users/foo/.nvm/versions/node/v20.19.4/bin/claude-internal"
+        );
+        assert!(dto.extra_args.is_empty());
+    }
 }

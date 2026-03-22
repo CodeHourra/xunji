@@ -255,6 +255,8 @@ impl AppConfig {
                 let cli = self.distiller.cli.as_ref().ok_or_else(|| {
                     "未配置 distiller.cli：请在设置中填写 CLI 命令名称（如 claude）".to_string()
                 })?;
+                // 与 sidecar 日志对照：若此处已是短名而用户填了绝对路径，说明配置未写入或未热更新
+                log::info!("sidecar init 将使用 CLI command={}", cli.command);
                 Ok(serde_json::json!({
                     "mode": "cli",
                     "command": cli.command,

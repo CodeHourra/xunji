@@ -203,10 +203,16 @@ export interface ApiConfigDto {
 }
 
 export interface CliConfigDto {
-  /** CLI 命令名（如 "claude"、"gemini"） */
+  /** CLI 命令名或可执行文件绝对路径 */
   command: string
   /** 附加参数 */
   extraArgs: string[]
+}
+
+/** `probe_cli_tools` 返回：候选名与登录 shell 下解析到的绝对路径 */
+export interface CliProbeResult {
+  name: string
+  resolvedPath: string | null
 }
 
 export interface CollectorConfigDto {

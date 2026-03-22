@@ -9,6 +9,7 @@ import type {
   AppConfigDto,
   Card,
   CardSummary,
+  CliProbeResult,
   DistillSessionResult,
   ListCardsParams,
   Message,
@@ -87,4 +88,10 @@ export const api = {
 
   /** 保存应用配置（写磁盘 + 热更新内存） */
   saveConfig: (config: AppConfigDto) => invoke<void>('save_config', { config }),
+
+  /**
+   * 在登录 shell 环境下探测常见 AI CLI 的绝对路径（与终端 `command -v` 一致）。
+   * 用于设置页「自动检测」，避免用户手填路径。
+   */
+  probeCliTools: () => invoke<CliProbeResult[]>('probe_cli_tools'),
 }

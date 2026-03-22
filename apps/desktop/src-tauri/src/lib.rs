@@ -90,6 +90,7 @@ pub fn run() {
             commands::sidebar::list_card_types,
             commands::config::get_config,
             commands::config::save_config,
+            commands::cli_probe::probe_cli_tools,
         ])
         .run(context)
         .expect("Tauri 应用启动失败");
