@@ -6,7 +6,9 @@
  */
 
 import OpenAI from 'openai'
+import { logOutgoingOpenAiChat } from './payload-log'
 import { CONTENT_HINT_API } from './prompts'
+import { distillLog } from './trace'
 
 export interface ApiProviderConfig {
   /** API 提供商标识（仅用于日志） */
@@ -48,17 +50,30 @@ export class ApiProvider {
   /**
    * 调用 LLM 执行提炼。
    * @param systemPrompt - 系统提示词（Prompt 模板）
-   * @param content - 经过前处理的对话内容
+   * @param content - 经过前处理的对话内容（即 HTTP messages[1].user）
+   * @param callLabel - 调用场景，用于日志区分 judge_value / distill_full
+   * @param traceId - 与 Rust 提炼流水线一致，贯穿日志
    */
-  async distill(systemPrompt: string, content: string): Promise<DistillResult> {
-    console.error(
-      `[distiller] Calling ${this.provider}/${this.model}, content length: ${content.length}`,
-    )
+  async distill(
+    systemPrompt: string,
+    content: string,
+    callLabel: string = 'distill',
+    traceId: string = 'unknown',
+  ): Promise<DistillResult> {
+    const systemFull = systemPrompt + CONTENT_HINT_API
+    logOutgoingOpenAiChat({
+      traceId,
+      callLabel,
+      provider: this.provider,
+      model: this.model,
+      systemFull,
+      userFull: content,
+    })
 
     const response = await this.client.chat.completions.create({
       model: this.model,
       messages: [
-        { role: 'system', content: systemPrompt + CONTENT_HINT_API },
+        { role: 'system', content: systemFull },
         { role: 'user', content },
       ],
       temperature: 0.3,
@@ -68,7 +83,10 @@ export class ApiProvider {
     const usage = response.usage
 
     console.error(
-      `[distiller] Response: ${text.length} chars, tokens: ${usage?.prompt_tokens ?? 0}/${usage?.completion_tokens ?? 0}`,
+      distillLog(
+        traceId,
+        `Response: ${text.length} chars, tokens: ${usage?.prompt_tokens ?? 0}/${usage?.completion_tokens ?? 0}`,
+      ),
     )
 
     return {

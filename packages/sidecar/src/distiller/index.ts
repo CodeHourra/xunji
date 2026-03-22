@@ -7,14 +7,23 @@
  *   mode = "cli" → CliProvider（本地 CLI 工具如 claude / gemini）
  */
 
+import { createHash } from 'node:crypto'
+
 import { clean, truncate } from './preprocessor'
 import { PROMPT_B_LIGHT, PROMPT_B_FULL } from './prompts'
 import { ApiProvider, type ApiProviderConfig, type DistillResult } from './api-provider'
 import { CliProvider, type CliProviderConfig } from './cli-provider'
+import { normalizeLlmTags, normalizeLlmTechStack } from './tech-tags'
+import { distillLog, resolveTraceId } from './trace'
 
 /** 统一的 Provider 接口（API 和 CLI 均实现） */
 interface Provider {
-  distill(systemPrompt: string, content: string): Promise<DistillResult>
+  distill(
+    systemPrompt: string,
+    content: string,
+    callLabel?: string,
+    traceId?: string,
+  ): Promise<DistillResult>
 }
 
 let provider: Provider | null = null
@@ -58,7 +67,7 @@ export function initCliProvider(config: CliProviderConfig): void {
   console.error(`[distiller] CLI Provider initialized: command=${config.command}`)
 }
 
-function getProvider(): ApiProvider {
+function getProvider(): Provider {
   if (!provider) {
     throw new Error('Distiller 未初始化，请先调用 init 方法配置 API')
   }
@@ -74,6 +83,78 @@ function preprocess(content: string): string {
 }
 
 /**
+ * 对送入模型的正文做指纹，用于日志中对照「同一会话、同一预处理结果」是否一致。
+ * （不记录全文，避免日志泄露完整对话。）
+ */
+function contentFingerprint(content: string): string {
+  return createHash('sha256').update(content, 'utf8').digest('hex').slice(0, 16)
+}
+
+/**
+ * 摘要打印正文头尾，确认截断策略是否生效、是否误伤关键信息。
+ */
+function logContentPreview(
+  label: string,
+  rawLen: number,
+  processed: string,
+  traceId: string,
+): void {
+  const fp = contentFingerprint(processed)
+  const head = processed.slice(0, 160).replace(/\n/g, '↵')
+  const tail = processed.slice(-160).replace(/\n/g, '↵')
+  console.error(
+    distillLog(
+      traceId,
+      `${label}: 原文=${rawLen} 字符 → 预处理后=${processed.length} 字符, sha256[0:16]=${fp}`,
+    ),
+  )
+  console.error(distillLog(traceId, `${label}: 预处理后开头160: ${head}`))
+  console.error(distillLog(traceId, `${label}: 预处理后结尾160: ${tail}`))
+}
+
+/**
+ * JSON.parse 失败时输出可操作的诊断信息（位置、片段、启发式原因）。
+ */
+function logJsonParseDiagnostics(
+  stage: string,
+  cleaned: string,
+  err: unknown,
+  traceId: string,
+): void {
+  const msg = err instanceof Error ? err.message : String(err)
+  const posMatch = msg.match(/position\s+(\d+)/i)
+  const pos = posMatch ? Number(posMatch[1]) : NaN
+  console.error(distillLog(traceId, `${stage}: JSON.parse 错误: ${msg}`))
+  if (!Number.isNaN(pos) && pos >= 0 && pos < cleaned.length) {
+    const from = Math.max(0, pos - 80)
+    const to = Math.min(cleaned.length, pos + 120)
+    const ctx = cleaned.slice(from, to).replace(/\n/g, '↵')
+    console.error(
+      distillLog(traceId, `${stage}: 错误位置≈${pos}, 上下文[${from},${to}]: ${ctx}`),
+    )
+    console.error(
+      distillLog(
+        traceId,
+        `${stage}: 错误位置字符: ${JSON.stringify(cleaned.slice(pos, pos + 1))}`,
+      ),
+    )
+  }
+  const noteKey = '"note"'
+  const ni = cleaned.indexOf(noteKey)
+  if (ni !== -1) {
+    const afterNote = cleaned.slice(ni, ni + 900).replace(/\n/g, '↵')
+    console.error(distillLog(traceId, `${stage}: 自 ${noteKey} 起 900 字符: ${afterNote}`))
+  } else {
+    console.error(
+      distillLog(
+        traceId,
+        `${stage}: 响应中未找到 ${noteKey} 键（可能键名异常或仅为代码块）`,
+      ),
+    )
+  }
+}
+
+/**
  * 从 LLM 响应文本中提取 JSON。
  *
  * 兼容 LLM 常见的输出格式问题：
@@ -83,10 +164,19 @@ function preprocess(content: string): string {
  * 4. 控制字符污染
  *
  * @param text - LLM 返回的原始响应文本
+ * @param traceId - 提炼 trace，串联日志
  */
-function extractJson(text: string): unknown {
+function extractJson(text: string, traceId: string): unknown {
   const rawPreview = text.slice(0, 300).replace(/\n/g, '↵')
-  console.error(`[distiller] extractJson 原始响应（前300字符）: ${rawPreview}`)
+  const respLen = text.length
+  const tripleBackticks = (text.match(/```/g) ?? []).length
+  console.error(
+    distillLog(
+      traceId,
+      `extractJson: 响应长度=${respLen}, 三反引号出现次数=${tripleBackticks}（note 内嵌套代码块时易破坏 JSON）`,
+    ),
+  )
+  console.error(distillLog(traceId, `extractJson 原始响应（前300字符）: ${rawPreview}`))
 
   let cleaned = text.trim()
 
@@ -95,14 +185,29 @@ function extractJson(text: string): unknown {
   const codeBlockMatch = cleaned.match(/^```[a-zA-Z0-9_-]*\s*\n?([\s\S]*?)\n?\s*```\s*$/)
   if (codeBlockMatch) {
     cleaned = codeBlockMatch[1].trim()
-    console.error(`[distiller] 已剥离代码块，清理后前200字符: ${cleaned.slice(0, 200).replace(/\n/g, '↵')}`)
+    console.error(
+      distillLog(traceId, `已剥离最外层代码块，清理后长度=${cleaned.length}`),
+    )
+    console.error(
+      distillLog(
+        traceId,
+        `已剥离代码块，清理后前200字符: ${cleaned.slice(0, 200).replace(/\n/g, '↵')}`,
+      ),
+    )
+  } else {
+    console.error(
+      distillLog(traceId, `未匹配整段 \`\`\` 包裹（策略0跳过），将按原文解析`),
+    )
   }
 
   // 策略 1：直接解析（最理想情况）
   try {
     return JSON.parse(cleaned)
   } catch (e1) {
-    console.error(`[distiller] 策略1（直接解析）失败: ${(e1 as Error).message}`)
+    console.error(
+      distillLog(traceId, `策略1（直接解析）失败: ${(e1 as Error).message}`),
+    )
+    logJsonParseDiagnostics('策略1', cleaned, e1, traceId)
   }
 
   // 策略 2：提取最外层 { ... }（LLM 在 JSON 前后附加了解释文字）
@@ -111,7 +216,10 @@ function extractJson(text: string): unknown {
     try {
       return JSON.parse(braceMatch[0])
     } catch (e2) {
-      console.error(`[distiller] 策略2（提取 {} 块）失败: ${(e2 as Error).message}`)
+      console.error(
+        distillLog(traceId, `策略2（提取 {} 块）失败: ${(e2 as Error).message}`),
+      )
+      logJsonParseDiagnostics('策略2', braceMatch[0], e2, traceId)
     }
   }
 
@@ -135,7 +243,10 @@ function extractJson(text: string): unknown {
   try {
     return JSON.parse(fixedNewlines)
   } catch (e3) {
-    console.error(`[distiller] 策略3（修复换行符）失败: ${(e3 as Error).message}`)
+    console.error(
+      distillLog(traceId, `策略3（修复换行符）失败: ${(e3 as Error).message}`),
+    )
+    logJsonParseDiagnostics('策略3', fixedNewlines, e3, traceId)
   }
 
   // 策略 4：去除控制字符后再解析
@@ -144,14 +255,80 @@ function extractJson(text: string): unknown {
   try {
     return JSON.parse(sanitized)
   } catch (e4) {
-    console.error(`[distiller] 策略4（去控制字符）失败: ${(e4 as Error).message}`)
+    console.error(
+      distillLog(traceId, `策略4（去控制字符）失败: ${(e4 as Error).message}`),
+    )
+    logJsonParseDiagnostics('策略4', sanitized, e4, traceId)
   }
 
   // 所有策略失败——记录完整响应供排查
-  console.error(`[distiller] JSON 解析全部失败，完整响应:\n${text}`)
+  console.error(distillLog(traceId, `JSON 解析全部失败，完整响应:\n${text}`))
   throw new Error(
     `JSON 解析失败，已尝试4种策略。响应预览（前500字符）: ${text.slice(0, 500)}`,
   )
+}
+
+/**
+ * 将 LLM 返回的「完整提炼」JSON 规范化为 DistillFullResult 所需字段。
+ *
+ * 说明：不少模型会输出 camelCase（如 techStack），而协议与 Rust 侧约定为 snake_case（tech_stack）。
+ * 若不做归一化，Rust 反序列化时 tech_stack 会落默认空数组，前端笔记头就永远没有技术栈。
+ */
+function normalizeDistillFullParsed(
+  raw: Record<string, unknown>,
+  traceId: string,
+): {
+  title: string
+  type: string
+  value: string
+  value_reason?: string
+  summary: string
+  note: string
+  tags: string[]
+  tech_stack: string[]
+} {
+  const tags = normalizeLlmTags(raw.tags)
+  // tech_stack / techStack 二选一（及少数模型用大写键的兜底）
+  const tech_stack = normalizeLlmTechStack(
+    raw.tech_stack ?? raw.techStack ?? raw['TechStack'],
+  )
+
+  console.error(
+    distillLog(
+      traceId,
+      `normalize: LLM JSON 顶层键: ${Object.keys(raw).join(', ')}`,
+    ),
+  )
+  console.error(
+    distillLog(
+      traceId,
+      `normalize: tech 相关原始值 tech_stack=${JSON.stringify(raw.tech_stack)} techStack=${JSON.stringify(raw.techStack)} TechStack=${JSON.stringify(raw['TechStack'])}`,
+    ),
+  )
+  console.error(
+    distillLog(
+      traceId,
+      `normalize: 标签 归一化后共 ${tags.length} 项（已限 5、去重）: ${JSON.stringify(tags)}`,
+    ),
+  )
+  console.error(
+    distillLog(
+      traceId,
+      `normalize: tech_stack 归一化后共 ${tech_stack.length} 项（已限 8、去重）: ${JSON.stringify(tech_stack)}`,
+    ),
+  )
+
+  return {
+    title: typeof raw.title === 'string' ? raw.title : '',
+    type: typeof raw.type === 'string' ? raw.type : 'other',
+    value: typeof raw.value === 'string' ? raw.value : 'medium',
+    value_reason:
+      typeof raw.value_reason === 'string' ? raw.value_reason : undefined,
+    summary: typeof raw.summary === 'string' ? raw.summary : '',
+    note: typeof raw.note === 'string' ? raw.note : '',
+    tags,
+    tech_stack,
+  }
 }
 
 // ── JSON-RPC Handlers ──
@@ -167,21 +344,32 @@ export async function handleJudgeValue(
   if (typeof params.content !== 'string' || !params.content.trim()) {
     throw new Error('参数缺失或类型错误: content 必须为非空字符串')
   }
+  const traceId = resolveTraceId(params)
   const content = params.content
 
   const p = getProvider()
   const processed = preprocess(content)
-  console.error(`[distiller] judge_value: 内容 ${content.length} 字符 → 预处理后 ${processed.length} 字符`)
+  logContentPreview('judge_value', content.length, processed, traceId)
 
-  const result = await p.distill(PROMPT_B_LIGHT, processed)
-  console.error(`[distiller] judge_value: LLM 响应 ${result.content.length} 字符，tokens: in=${result.promptTokens} out=${result.completionTokens}`)
+  const result = await p.distill(PROMPT_B_LIGHT, processed, 'judge_value', traceId)
+  console.error(
+    distillLog(
+      traceId,
+      `judge_value: LLM 响应 ${result.content.length} 字符，tokens: in=${result.promptTokens} out=${result.completionTokens}`,
+    ),
+  )
 
-  const parsed = extractJson(result.content) as {
+  const parsed = extractJson(result.content, traceId) as {
     value: string
     type: string
     reason: string
   }
-  console.error(`[distiller] judge_value 结果: value=${parsed.value}, type=${parsed.type}`)
+  console.error(
+    distillLog(
+      traceId,
+      `judge_value 结果: value=${parsed.value}, type=${parsed.type}`,
+    ),
+  )
 
   return {
     ...parsed,
@@ -201,26 +389,29 @@ export async function handleDistillFull(
   if (typeof params.content !== 'string' || !params.content.trim()) {
     throw new Error('参数缺失或类型错误: content 必须为非空字符串')
   }
+  const traceId = resolveTraceId(params)
   const content = params.content
 
   const p = getProvider()
   const processed = preprocess(content)
-  console.error(`[distiller] distill_full: 内容 ${content.length} 字符 → 预处理后 ${processed.length} 字符`)
+  logContentPreview('distill_full', content.length, processed, traceId)
 
-  const result = await p.distill(PROMPT_B_FULL, processed)
-  console.error(`[distiller] distill_full: LLM 响应 ${result.content.length} 字符，tokens: in=${result.promptTokens} out=${result.completionTokens}`)
+  const result = await p.distill(PROMPT_B_FULL, processed, 'distill_full', traceId)
+  console.error(
+    distillLog(
+      traceId,
+      `distill_full: LLM 响应 ${result.content.length} 字符，tokens: in=${result.promptTokens} out=${result.completionTokens}`,
+    ),
+  )
 
-  const parsed = extractJson(result.content) as {
-    title: string
-    type: string
-    value: string
-    value_reason?: string
-    summary: string
-    note: string
-    tags: string[]
-    tech_stack: string[]
-  }
-  console.error(`[distiller] distill_full 结果: value=${parsed.value}, type=${parsed.type}, title="${parsed.title}"`)
+  const rawObj = extractJson(result.content, traceId) as Record<string, unknown>
+  const parsed = normalizeDistillFullParsed(rawObj, traceId)
+  console.error(
+    distillLog(
+      traceId,
+      `distill_full 结果: value=${parsed.value}, type=${parsed.type}, title="${parsed.title}", tech_stack=${JSON.stringify(parsed.tech_stack)}`,
+    ),
+  )
 
   return {
     ...parsed,

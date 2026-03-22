@@ -17,7 +17,9 @@
 import { spawn } from 'child_process'
 import { tmpdir } from 'os'
 import type { DistillResult } from './api-provider'
+import { logCliMergedPrompt } from './payload-log'
 import { CONTENT_HINT_CLI } from './prompts'
+import { distillLog } from './trace'
 
 export interface CliProviderConfig {
   /** CLI 命令名称（如 "claude"、"gemini"、"codex"，可自定义） */
@@ -39,19 +41,34 @@ export class CliProvider {
    * 调用 CLI 工具执行提炼。
    * @param systemPrompt - 系统提示词（Prompt 模板）
    * @param content - 经过前处理的对话内容
+   * @param callLabel - judge_value / distill_full，用于日志
    */
-  async distill(systemPrompt: string, content: string): Promise<DistillResult> {
+  async distill(
+    systemPrompt: string,
+    content: string,
+    callLabel: string = 'distill',
+    traceId: string = 'unknown',
+  ): Promise<DistillResult> {
     // CLI 不支持多角色消息，将 system prompt + 尾部提示 + 对话内容拼为一条。
     // 使用醒目的分隔线，与 CONTENT_HINT_CLI 中的描述一致。
-    const fullPrompt = `${systemPrompt}${CONTENT_HINT_CLI}\n\n════════════════════════════════════════\n\n${content}`
+    const systemPart = `${systemPrompt}${CONTENT_HINT_CLI}`
+    const fullPrompt = `${systemPart}\n\n════════════════════════════════════════\n\n${content}`
 
-    console.error(
-      `[cli-provider] Calling ${this.command} -p, content length: ${fullPrompt.length}`,
-    )
+    logCliMergedPrompt({
+      traceId,
+      callLabel,
+      command: this.command,
+      systemPartLen: systemPart.length,
+      userLen: content.length,
+      mergedLen: fullPrompt.length,
+      mergedFull: fullPrompt,
+    })
 
     const responseText = await this.runCli(fullPrompt)
 
-    console.error(`[cli-provider] Response: ${responseText.length} chars`)
+    console.error(
+      distillLog(traceId, `[cli-provider] Response: ${responseText.length} chars`),
+    )
 
     return {
       content: responseText,
