@@ -1,0 +1,60 @@
+# 在 PR / master 推送时做依赖安装、前端与 Rust 侧编译检查，避免明显破坏合并进主分支。
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      # 保证 CHANGELOG 与关于页数据源一致（脚本见 scripts/sync-changelog.mjs）
+      - name: Verify changelog sync
+        run: |
+          bun run sync:changelog
+          git diff --exit-code apps/desktop/src/data/app-changelog.md
+
+      - name: Build sidecar
+        run: cd packages/sidecar && bun run build
+
+      - name: Build desktop frontend
+        run: cd apps/desktop && bun run build
+
+      # Tauri 在 Linux 上链接需系统库，否则 cargo check 会失败
+      - name: Install Linux build dependencies (Tauri)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            build-essential \
+            curl \
+            libssl-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cargo check (desktop)
+        run: cd apps/desktop/src-tauri && cargo check --all-targets

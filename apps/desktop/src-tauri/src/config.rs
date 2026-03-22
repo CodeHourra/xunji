@@ -4,7 +4,9 @@
 //! 1. 环境变量 XUNJI_CONFIG 指定的路径
 //! 2. ~/.xunji/config.toml（默认）
 //!
-//! 首次启动时自动创建默认配置文件，包含 Claude Code / Cursor 的默认扫描路径。
+//! 首次启动时自动创建默认配置文件，包含 Claude Code / Cursor / CodeBuddy（CodeBuddyExtension）的默认扫描路径。
+//!
+//! 加载已有配置时，若缺少新版默认数据源条目，会 **自动追加**（不覆盖用户已配置的同名 id）。
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -121,6 +123,15 @@ fn default_sync_interval() -> u64 {
     300
 }
 
+/// CodeBuddy 扩展数据根目录（与问渠 `scanner/codebuddy.py` 的 LOCALHOST_CANDIDATES 一致）。
+/// macOS / Linux 各一条，不存在目录时在采集阶段跳过。
+fn default_codebuddy_scan_dirs() -> Vec<String> {
+    vec![
+        "~/Library/Application Support/CodeBuddyExtension/Data".to_string(),
+        "~/.local/share/CodeBuddyExtension".to_string(),
+    ]
+}
+
 impl Default for SyncConfig {
     fn default() -> Self {
         Self {
@@ -152,6 +163,13 @@ impl Default for AppConfig {
                         scan_dirs: vec![
                             "~/Library/Application Support/Cursor".to_string(),
                         ],
+                    },
+                    SourceConfig {
+                        id: "codebuddy-cli".to_string(),
+                        name: "CodeBuddy".to_string(),
+                        // 默认关闭：未安装 CodeBuddy 的用户无需扫盘；需要时在设置中开启
+                        enabled: false,
+                        scan_dirs: default_codebuddy_scan_dirs(),
                     },
                 ],
             },
@@ -210,9 +228,57 @@ impl AppConfig {
 
         log::info!("加载配置文件: {}", config_path.display());
         let content = fs::read_to_string(&config_path)?;
-        let config: AppConfig = toml::from_str(&content)?;
+        let mut config: AppConfig = toml::from_str(&content)?;
+        config.ensure_default_collector_sources();
+        if config.migrate_codebuddy_scan_dirs() {
+            // 将迁移结果写回磁盘，避免用户误以为仍只扫 ~/.codebuddy
+            if let Err(e) = config.save(&config_path) {
+                log::warn!("CodeBuddy 扫描路径迁移后写回 config.toml 失败（内存已更正）: {}", e);
+            } else {
+                log::info!("已将 CodeBuddy 扫描路径迁移结果写回 {}", config_path.display());
+            }
+        }
         log::debug!("配置加载成功: {:?}", config);
         Ok(config)
+    }
+
+    /// 若配置中尚无 **CodeBuddy CLI** 数据源，则追加默认项（升级用户无需手改 config）。
+    /// 不批量注入全部内置源，避免覆盖「仅自定义源」的极简配置。
+    pub fn ensure_default_collector_sources(&mut self) {
+        let has_codebuddy = self
+            .collector
+            .sources
+            .iter()
+            .any(|s| s.id == "codebuddy-cli");
+        if has_codebuddy {
+            return;
+        }
+        log::info!("配置中缺少数据源「codebuddy-cli」，已追加默认项（默认关闭采集）");
+        self.collector.sources.push(SourceConfig {
+            id: "codebuddy-cli".to_string(),
+            name: "CodeBuddy".to_string(),
+            enabled: false,
+            scan_dirs: default_codebuddy_scan_dirs(),
+        });
+    }
+
+    /// 将旧版误配的 `~/.codebuddy` 扫描路径迁移为问渠一致的 CodeBuddyExtension 根目录。
+    /// 返回 `true` 表示已修改内存中的配置（调用方可选择写回磁盘）。
+    pub fn migrate_codebuddy_scan_dirs(&mut self) -> bool {
+        let mut changed = false;
+        for s in &mut self.collector.sources {
+            if s.id != "codebuddy-cli" {
+                continue;
+            }
+            if s.scan_dirs.len() == 1 && s.scan_dirs[0] == "~/.codebuddy" {
+                log::info!(
+                    "codebuddy-cli：扫描路径已从 ~/.codebuddy 更新为 CodeBuddyExtension 根目录（与问渠 scanner 一致）"
+                );
+                s.scan_dirs = default_codebuddy_scan_dirs();
+                changed = true;
+            }
+        }
+        changed
     }
 
     /// 将配置写入指定路径（自动创建父目录）
@@ -311,11 +377,13 @@ mod tests {
     use tempfile::NamedTempFile;
 
     #[test]
-    fn test_default_config_has_two_sources() {
+    fn test_default_config_has_three_sources() {
         let config = AppConfig::default();
-        assert_eq!(config.collector.sources.len(), 2);
+        assert_eq!(config.collector.sources.len(), 3);
         assert_eq!(config.collector.sources[0].id, "claude-code");
         assert_eq!(config.collector.sources[1].id, "cursor");
+        assert_eq!(config.collector.sources[2].id, "codebuddy-cli");
+        assert!(!config.collector.sources[2].enabled);
     }
 
     #[test]
@@ -335,7 +403,40 @@ mod tests {
 
         let config = AppConfig::load(Some(&path)).unwrap();
         assert!(path.exists());
-        assert_eq!(config.collector.sources.len(), 2);
+        assert_eq!(config.collector.sources.len(), 3);
+    }
+
+    #[test]
+    fn test_migrate_codebuddy_scan_dirs_from_old_default() {
+        let mut file = NamedTempFile::new().unwrap();
+        write!(
+            file,
+            r#"
+[collector]
+[[collector.sources]]
+id = "codebuddy-cli"
+name = "CodeBuddy"
+enabled = false
+scan_dirs = ["~/.codebuddy"]
+
+[distiller]
+
+[sync]
+mode = "manual"
+"#
+        )
+        .unwrap();
+
+        let config = AppConfig::load(Some(file.path())).unwrap();
+        let cb = config
+            .collector
+            .sources
+            .iter()
+            .find(|s| s.id == "codebuddy-cli")
+            .unwrap();
+        assert_eq!(cb.scan_dirs.len(), 2);
+        assert!(cb.scan_dirs[0].contains("CodeBuddyExtension"));
+        assert!(cb.scan_dirs[1].contains("CodeBuddyExtension"));
     }
 
     #[test]
@@ -361,8 +462,10 @@ interval_secs = 600
         .unwrap();
 
         let config = AppConfig::load(Some(file.path())).unwrap();
-        assert_eq!(config.collector.sources.len(), 1);
+        // 升级合并：自动追加 codebuddy-cli
+        assert_eq!(config.collector.sources.len(), 2);
         assert_eq!(config.collector.sources[0].id, "test-source");
+        assert!(config.collector.sources.iter().any(|s| s.id == "codebuddy-cli"));
         assert_eq!(config.sync.interval_secs, 600);
     }
 

@@ -171,7 +171,9 @@ pub async fn save_config(
     state: State<'_, AppState>,
     config: AppConfigDto,
 ) -> Result<(), String> {
-    let new_config = AppConfig::from(config);
+    let mut new_config = AppConfig::from(config);
+    // 与启动加载一致：保存前再跑一遍迁移，避免前端传入旧版 ~/.codebuddy 路径
+    let _ = new_config.migrate_codebuddy_scan_dirs();
 
     // 便于排查：确认落盘的 CLI command 是否为绝对路径（与 sidecar 报错中的引号内容应一致）
     if new_config.distiller.mode == "cli" {
