@@ -7,7 +7,7 @@
     "frontendDist": "../dist",
     "devUrl": "http://localhost:1420",
     "beforeDevCommand": "bun --bun run dev",
-    "beforeBuildCommand": "bun --bun run build"
+    "beforeBuildCommand": "bun --bun run build:tauri"
   },
   "app": {
     "windows": [
@@ -30,6 +30,9 @@
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png"
-    ]
+    ],
+    "resources": {
+      "../../../packages/sidecar/dist/xunji-sidecar": "xunji-sidecar"
+    }
   }
 }

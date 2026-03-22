@@ -7,8 +7,10 @@
 //!   └── stop()  → 终止进程
 //! ```
 //!
-//! 开发模式下从 packages/sidecar/dist/ 加载二进制，
-//! 生产模式从 Tauri resources 加载。
+//! 解析顺序（后者为兜底）：
+//! 1. 开发：仓库 `packages/sidecar/dist/xunji-sidecar`（tauri dev / cargo run）
+//! 2. 安装包：`resource_dir/xunji-sidecar`（与 `tauri.conf.json` 的 `bundle.resources` 一致）
+//! 3. 用户全局：`~/.xunji/bin/xunji-sidecar`
 
 pub mod rpc;
 
@@ -17,6 +19,8 @@ use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 
 use rpc::{RpcClient, RpcError};
+use tauri::utils::platform::resource_dir;
+use tauri::utils::{Env, PackageInfo};
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 
@@ -39,15 +43,19 @@ impl SidecarManager {
         }
     }
 
-    /// 查找 sidecar 二进制路径（开发模式优先，再找全局安装位置）
-    pub fn find_binary() -> Option<PathBuf> {
-        // 开发模式：从 packages/sidecar/dist/ 加载
+    /// 查找 sidecar 二进制路径。
+    ///
+    /// `package_info` 来自 [`tauri::generate_context!`]，用于与 Tauri CLI 相同的 `resource_dir` 解析（跨平台）。
+    pub fn find_binary(package_info: &PackageInfo) -> Option<PathBuf> {
+        let env = Env::default();
+
+        // 1) 开发模式：从 packages/sidecar/dist/ 加载
         // CARGO_MANIFEST_DIR = .../apps/desktop/src-tauri
         // parent×3: src-tauri → desktop → apps → xunji root
         let dev_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .parent() // → apps/desktop
-            .and_then(|p| p.parent()) // → apps
-            .and_then(|p| p.parent()) // → xunji root
+            .parent()
+            .and_then(|p| p.parent())
+            .and_then(|p| p.parent())
             .map(|p| p.join("packages/sidecar/dist/xunji-sidecar"));
 
         if let Some(ref path) = dev_path {
@@ -57,7 +65,16 @@ impl SidecarManager {
             }
         }
 
-        // 全局安装位置
+        // 2) 安装包内（DMG/.app、Windows/Linux 安装目录）：bundle.resources 映射到 resource 目录下的 `xunji-sidecar`
+        if let Ok(dir) = resource_dir(package_info, &env) {
+            let bundled = dir.join("xunji-sidecar");
+            if bundled.exists() {
+                log::info!("使用安装包内 sidecar: {}", bundled.display());
+                return Some(bundled);
+            }
+        }
+
+        // 3) 全局安装位置（可选覆盖）
         if let Some(home) = dirs::home_dir() {
             let global_path = home.join(".xunji/bin/xunji-sidecar");
             if global_path.exists() {

@@ -57,7 +57,9 @@ pub fn run() {
         log::error!("清理残留 analyzing 状态失败: {}", e);
     }
 
-    let sidecar = SidecarManager::find_binary().map(|path| {
+    let context = tauri::generate_context!();
+
+    let sidecar = SidecarManager::find_binary(context.package_info()).map(|path| {
         Arc::new(SidecarManager::new(path))
     });
 
@@ -89,6 +91,6 @@ pub fn run() {
             commands::config::get_config,
             commands::config::save_config,
         ])
-        .run(tauri::generate_context!())
+        .run(context)
         .expect("Tauri 应用启动失败");
 }
