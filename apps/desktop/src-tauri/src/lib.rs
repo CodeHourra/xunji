@@ -32,6 +32,13 @@ impl AppState {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // 开发构建（`bun run tauri dev` / cargo dev）：默认开启提炼载荷全文日志（与 sidecar 的 XUNJI_LOG_DISTILL_PAYLOAD=1 一致）。
+    // 发布构建不设置；若需在本机关闭，启动前可 export XUNJI_LOG_DISTILL_PAYLOAD=0。
+    #[cfg(debug_assertions)]
+    if std::env::var_os("XUNJI_LOG_DISTILL_PAYLOAD").is_none() {
+        std::env::set_var("XUNJI_LOG_DISTILL_PAYLOAD", "1");
+    }
+
     // 默认 info 级别，可通过 RUST_LOG 环境变量覆盖（如 RUST_LOG=debug）
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
@@ -77,6 +84,7 @@ pub fn run() {
             commands::cards::get_card,
             commands::sidebar::get_session_groups,
             commands::sidebar::list_tags,
+            commands::sidebar::list_tech_stack_counts,
             commands::sidebar::list_card_types,
             commands::config::get_config,
             commands::config::save_config,

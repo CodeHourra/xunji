@@ -2,7 +2,7 @@
 //!
 //! ```text
 //! distill_session (spawn_blocking)
-//!   ├── 读 Session + Messages → 拼接 content
+//!   ├── 读 Session + Messages → 拼接 content（仅 user / assistant，排除 tool 等）
 //!   ├── RPC init → judge_value
 //!   ├── value ∈ {medium, high} → distill_full → insert_card
 //!   └── value ∈ {low, none} → 仅更新会话价值，返回业务错误（无 Card）
@@ -13,6 +13,7 @@
 //! 自动映射到 Rust snake_case 参数，无需 `args` 包装结构体。
 
 use tauri::State;
+use uuid::Uuid;
 
 use crate::config::AppConfig;
 use crate::sidecar::SidecarManager;
@@ -45,7 +46,8 @@ struct DistillFullResult {
     note: String,
     #[serde(default)]
     tags: Vec<String>,
-    #[serde(default)]
+    /// 与 prompt 约定为 snake_case；兼容少数模型输出 camelCase `techStack`
+    #[serde(default, alias = "techStack")]
     tech_stack: Vec<String>,
     prompt_tokens: i64,
     completion_tokens: i64,
@@ -114,6 +116,8 @@ pub async fn get_session_messages(
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DistillSessionResult {
+    /// 本次提炼流水线 id，与 sidecar / API 日志中的 traceId 一致，便于串联排查（如 tech_stack）
+    pub trace_id: String,
     /// 分析后的价值等级（high / medium / low / none）
     pub value: String,
     /// true = 低/无价值，未生成笔记；false = 已生成笔记
@@ -174,7 +178,27 @@ fn run_distill_pipeline(
         return Err("该会话没有消息，无法提炼".to_string());
     }
 
+    let trace_id = Uuid::new_v4().to_string();
+    log::info!(
+        "distill 开始 trace_id={} session_id={}",
+        trace_id,
+        session_db_id
+    );
+
+    let included_count = messages.iter().filter(|m| is_included_distill_message(m)).count();
+    log::info!(
+        "trace_id={} distill transcript: 数据库消息 {} 条，纳入 user/assistant/model {} 条",
+        trace_id,
+        messages.len(),
+        included_count
+    );
+
     let content = build_transcript(&messages);
+    log_rpc_distill_payload(
+        &trace_id,
+        "RPC content（Rust→Sidecar Params.content，preprocess 前）",
+        &content,
+    );
     if content.trim().is_empty() {
         return Err("会话正文为空，无法提炼".to_string());
     }
@@ -199,13 +223,18 @@ fn run_distill_pipeline(
         let judge: JudgeValueResult = sidecar
             .call_with_timeout(
                 "judge_value",
-                serde_json::json!({ "content": content }),
+                serde_json::json!({ "content": content, "traceId": trace_id }),
                 std::time::Duration::from_secs(120),
             )
             .map_err(|e| e.to_string())?;
 
         let v_norm = judge.value.to_lowercase();
-        log::info!("价值判断结果: {} (session={})", v_norm, session_db_id);
+        log::info!(
+            "trace_id={} 价值判断结果: {} (session={})",
+            trace_id,
+            v_norm,
+            session_db_id
+        );
 
         // ── low / none：更新价值 + 持久化标题/类型/原因 → 正常返回（非错误） ──
         if v_norm == "low" || v_norm == "none" {
@@ -229,6 +258,7 @@ fn run_distill_pipeline(
             }
 
             return Ok(DistillSessionResult {
+                trace_id: trace_id.clone(),
                 value: judge.value,
                 is_low_value: true,
                 card_title: Some(title),
@@ -246,10 +276,19 @@ fn run_distill_pipeline(
         let full: DistillFullResult = sidecar
             .call_with_timeout(
                 "distill_full",
-                serde_json::json!({ "content": content }),
+                serde_json::json!({ "content": content, "traceId": trace_id }),
                 std::time::Duration::from_secs(300),
             )
             .map_err(|e| e.to_string())?;
+
+        log::info!(
+            "trace_id={} distill_full 解析入库: tags 条目数={} {:?} | tech_stack 条目数={} {:?}",
+            trace_id,
+            full.tags.len(),
+            full.tags,
+            full.tech_stack.len(),
+            full.tech_stack
+        );
 
         db.delete_cards_for_session(session_db_id)
             .map_err(|e| e.to_string())?;
@@ -280,6 +319,7 @@ fn run_distill_pipeline(
 
         let card = db.get_card(&card_id).map_err(|e| e.to_string())?;
         Ok(DistillSessionResult {
+            trace_id: trace_id.clone(),
             value: full.value,
             is_low_value: false,
             card_title: None,
@@ -316,10 +356,33 @@ fn build_analysis_title(reason: &str) -> String {
     }
 }
 
+/// 是否纳入送给提炼模型的正文（仅保留人类用户与助手可见轮次）。
+///
+/// ```text
+/// 包含: user, assistant, model（model 为部分 API 对助手回复的别名；大小写不敏感）
+/// 排除: tool（工具回传/bash 输出等）、system 及未知角色
+/// ```
+///
+/// 说明：采集层已将「纯 tool_result」标为 role=tool（见 claude_code），此处直接跳过即可，
+/// 避免浪费 token、并减少与「真实对话」无关的噪声。
+fn is_distill_dialogue_role(role: &str) -> bool {
+    matches!(
+        role.trim().to_ascii_lowercase().as_str(),
+        "user" | "assistant" | "model"
+    )
+}
+
+/// 是否纳入 transcript：角色符合且正文非空（与 `build_transcript` 规则一致）。
+fn is_included_distill_message(m: &Message) -> bool {
+    is_distill_dialogue_role(&m.role) && !m.content.trim().is_empty()
+}
+
 /// 将消息列表拼成单一字符串，供 LLM 前处理（角色标签 + 换行分隔）。
+///
+/// 仅拼接 user / assistant / model 对应消息（输出仍带原始 role 标签）；`tool`、空内容条目不写入。
 fn build_transcript(messages: &[Message]) -> String {
     let mut out = String::new();
-    for m in messages {
+    for m in messages.iter().filter(|m| is_included_distill_message(m)) {
         if !out.is_empty() {
             out.push_str("\n\n");
         }
@@ -329,4 +392,126 @@ fn build_transcript(messages: &[Message]) -> String {
         out.push_str(&m.content);
     }
     out
+}
+
+// ── 提炼载荷日志（与 sidecar `payload-log.ts` 可对拍）──────────────────────────
+
+fn utf8_safe_prefix(s: &str, max_bytes: usize) -> &str {
+    if s.len() <= max_bytes {
+        return s;
+    }
+    let mut end = max_bytes;
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    &s[..end]
+}
+
+fn utf8_safe_suffix(s: &str, max_bytes: usize) -> &str {
+    if s.len() <= max_bytes {
+        return s;
+    }
+    let mut start = s.len() - max_bytes;
+    while start < s.len() && !s.is_char_boundary(start) {
+        start += 1;
+    }
+    &s[start..]
+}
+
+/// 记录 JSON-RPC 中传给 sidecar 的 `content`（未经 clean/truncate）。
+/// 与 sidecar 日志里 `user.md5[0:16]`：若预处理未改长度则应与 API 侧 user 一致。
+/// 设置环境变量 `XUNJI_LOG_DISTILL_PAYLOAD=1` 可打印完整正文（排查后关闭）。
+fn log_rpc_distill_payload(trace_id: &str, label: &str, content: &str) {
+    let digest = md5::compute(content.as_bytes());
+    let hex_full = format!("{:x}", digest);
+    let md5_prefix: String = hex_full.chars().take(16).collect();
+    log::info!(
+        "trace_id={} | {}: UTF-8 字节数={}, md5[0:16]={}（与 sidecar `user.md5[0:16]` 对照；若仅截断则尾部不同）",
+        trace_id,
+        label,
+        content.len(),
+        md5_prefix
+    );
+    const PREVIEW: usize = 2500;
+    let head = utf8_safe_prefix(content, PREVIEW);
+    log::info!(
+        "trace_id={} | {}: [HEAD {} bytes]\n{}",
+        trace_id,
+        label,
+        head.len(),
+        head
+    );
+    if content.len() > PREVIEW {
+        let tail = utf8_safe_suffix(content, PREVIEW);
+        log::info!(
+            "trace_id={} | {}: [TAIL {} bytes]\n{}",
+            trace_id,
+            label,
+            tail.len(),
+            tail
+        );
+    }
+    if std::env::var("XUNJI_LOG_DISTILL_PAYLOAD")
+        .map(|v| v == "1")
+        .unwrap_or(false)
+    {
+        log::info!(
+            "trace_id={} | {}: [FULL 由 XUNJI_LOG_DISTILL_PAYLOAD=1 开启]\n{}",
+            trace_id,
+            label,
+            content
+        );
+    }
+}
+
+#[cfg(test)]
+mod transcript_tests {
+    use super::*;
+
+    fn sample_message(role: &str, content: &str) -> Message {
+        Message {
+            id: "m1".into(),
+            session_id: "s1".into(),
+            role: role.into(),
+            content: content.into(),
+            timestamp: None,
+            tokens_in: 0,
+            tokens_out: 0,
+            seq_order: 0,
+        }
+    }
+
+    #[test]
+    fn build_transcript_drops_tool_and_keeps_order() {
+        let messages = vec![
+            sample_message("user", "问题"),
+            sample_message("tool", "ls -la\nfoo"),
+            sample_message("Assistant", "回答"),
+            sample_message("tool", "stderr..."),
+        ];
+        let t = build_transcript(&messages);
+        assert!(!t.contains("[tool]"), "不应包含 tool 段: {}", t);
+        assert!(t.starts_with("[user]"));
+        assert!(t.contains("[Assistant]")); // 保留采集层原始大小写
+        assert!(t.contains("问题") && t.contains("回答"));
+    }
+
+    #[test]
+    fn build_transcript_accepts_model_as_assistant_alias() {
+        let messages = vec![sample_message("model", "来自 model 角色的回复")];
+        let t = build_transcript(&messages);
+        assert!(t.contains("[model]"));
+        assert!(t.contains("来自 model"));
+    }
+
+    #[test]
+    fn build_transcript_skips_empty_user_assistant() {
+        let messages = vec![
+            sample_message("user", "   "),
+            sample_message("assistant", "有内容"),
+        ];
+        let t = build_transcript(&messages);
+        assert!(!t.contains("[user]"));
+        assert!(t.contains("[assistant]"));
+    }
 }

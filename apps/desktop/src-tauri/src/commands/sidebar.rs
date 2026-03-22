@@ -29,6 +29,19 @@ pub async fn list_tags(state: State<'_, AppState>) -> Result<Vec<TagCount>, Stri
     .map_err(|e| format!("list_tags join 失败: {}", e))?
 }
 
+/// 返回 `cards.tech_stack` 聚合后的技术栈及卡片命中次数（知识库侧栏展示）。
+#[tauri::command]
+pub async fn list_tech_stack_counts(
+    state: State<'_, AppState>,
+) -> Result<Vec<TagCount>, String> {
+    let db = state.db.clone();
+    tokio::task::spawn_blocking(move || {
+        db.list_all_tech_stack_counts().map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("list_tech_stack_counts join 失败: {}", e))?
+}
+
 /// 返回各知识类型的卡片数量统计，用于知识库侧栏类型筛选。
 #[tauri::command]
 pub async fn list_card_types(state: State<'_, AppState>) -> Result<Vec<TypeCount>, String> {

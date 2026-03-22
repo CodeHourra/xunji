@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use chrono::Utc;
 use rusqlite::{params, OptionalExtension, Row};
 use uuid::Uuid;
@@ -193,8 +195,13 @@ impl Database {
 
         tx.commit()?;
         log::info!(
-            "创建卡片: id={}, title={:?}, value={:?}, tags=[{}]",
-            id, card.title, card.value, tags_joined
+            "创建卡片: id={}, title={:?}, value={:?}, tags=[{}], tech_stack列='{}' ({}段)",
+            id,
+            card.title,
+            card.value,
+            tags_joined,
+            tech_stack_joined,
+            card.tech_stack.len()
         );
         Ok(id)
     }
@@ -349,6 +356,41 @@ impl Database {
             })
         })?;
         rows.collect::<Result<Vec<_>, _>>().map_err(DbError::from)
+    }
+
+    /// 从 `cards.tech_stack` 逗号分隔列聚合技术栈及卡片命中次数（知识库侧栏「技术栈」区块）。
+    /// 展示名取**首次出现**的写法；统计时按小写合并（Rust/rust 视为同一项）。
+    pub fn list_all_tech_stack_counts(&self) -> DbResult<Vec<TagCount>> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare(
+            "SELECT tech_stack FROM cards WHERE tech_stack IS NOT NULL AND TRIM(tech_stack) != ''",
+        )?;
+        let mut counts: HashMap<String, (String, i64)> = HashMap::new();
+        let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+        for row in rows {
+            let s = row?;
+            for part in s.split(',') {
+                let t = part.trim();
+                if t.is_empty() {
+                    continue;
+                }
+                let key = t.to_lowercase();
+                let e = counts
+                    .entry(key)
+                    .or_insert_with(|| (t.to_string(), 0));
+                e.1 += 1;
+            }
+        }
+        let mut v: Vec<TagCount> = counts
+            .into_values()
+            .map(|(name, count)| TagCount { name, count })
+            .collect();
+        v.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.name.cmp(&b.name)));
+        log::debug!(
+            "list_all_tech_stack_counts: {} 个不同技术栈条目",
+            v.len()
+        );
+        Ok(v)
     }
 
     /// 按知识类型统计卡片数量（按数量降序），用于知识库侧栏类型筛选。
