@@ -1,6 +1,6 @@
 [package]
 name = "xunji-desktop"
-version = "0.1.0"
+version = "0.1.1"
 description = "寻迹 - AI 编程知识管理平台"
 authors = ["XunJi"]
 edition = "2021"
@@ -27,6 +27,10 @@ md5 = "0.7"
 log = "0.4"
 env_logger = "0.11"
 thiserror = "1"
+serde_yaml = "0.9"
+tauri-plugin-dialog = "2"
+# workspace.json 中 folder 对非 ASCII 路径常使用百分号编码，需按 URL 解析后还原本地路径
+url = "2"
 
 [dev-dependencies]
 tempfile = "3"

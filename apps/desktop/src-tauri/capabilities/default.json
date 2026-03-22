@@ -3,5 +3,9 @@
   "identifier": "default",
   "description": "主窗口默认 IPC 能力（含 Tauri core 默认集）",
   "windows": ["*"],
-  "permissions": ["core:default"]
+  "permissions": [
+    "core:default",
+    "dialog:allow-open",
+    "dialog:allow-save"
+  ]
 }

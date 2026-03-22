@@ -1,6 +1,9 @@
 {
   "name": "xunji",
   "private": true,
+  "scripts": {
+    "sync:changelog": "node scripts/sync-changelog.mjs"
+  },
   "workspaces": [
     "apps/desktop",
     "packages/*"
