@@ -4,7 +4,9 @@
 //! 1. 环境变量 XUNJI_CONFIG 指定的路径
 //! 2. ~/.xunji/config.toml（默认）
 //!
-//! 首次启动时自动创建默认配置文件，包含 Claude Code / Cursor 的默认扫描路径。
+//! 首次启动时自动创建默认配置文件，包含 Claude Code / Cursor / CodeBuddy CLI 的默认扫描路径。
+//!
+//! 加载已有配置时，若缺少新版默认数据源条目，会 **自动追加**（不覆盖用户已配置的同名 id）。
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -153,6 +155,13 @@ impl Default for AppConfig {
                             "~/Library/Application Support/Cursor".to_string(),
                         ],
                     },
+                    SourceConfig {
+                        id: "codebuddy-cli".to_string(),
+                        name: "CodeBuddy CLI".to_string(),
+                        // 默认关闭：未安装 CodeBuddy 的用户无需扫盘；需要时在设置中开启
+                        enabled: false,
+                        scan_dirs: vec!["~/.codebuddy".to_string()],
+                    },
                 ],
             },
             distiller: DistillerConfig {
@@ -210,9 +219,30 @@ impl AppConfig {
 
         log::info!("加载配置文件: {}", config_path.display());
         let content = fs::read_to_string(&config_path)?;
-        let config: AppConfig = toml::from_str(&content)?;
+        let mut config: AppConfig = toml::from_str(&content)?;
+        config.ensure_default_collector_sources();
         log::debug!("配置加载成功: {:?}", config);
         Ok(config)
+    }
+
+    /// 若配置中尚无 **CodeBuddy CLI** 数据源，则追加默认项（升级用户无需手改 config）。
+    /// 不批量注入全部内置源，避免覆盖「仅自定义源」的极简配置。
+    pub fn ensure_default_collector_sources(&mut self) {
+        let has_codebuddy = self
+            .collector
+            .sources
+            .iter()
+            .any(|s| s.id == "codebuddy-cli");
+        if has_codebuddy {
+            return;
+        }
+        log::info!("配置中缺少数据源「codebuddy-cli」，已追加默认项（默认关闭采集）");
+        self.collector.sources.push(SourceConfig {
+            id: "codebuddy-cli".to_string(),
+            name: "CodeBuddy CLI".to_string(),
+            enabled: false,
+            scan_dirs: vec!["~/.codebuddy".to_string()],
+        });
     }
 
     /// 将配置写入指定路径（自动创建父目录）
@@ -311,11 +341,13 @@ mod tests {
     use tempfile::NamedTempFile;
 
     #[test]
-    fn test_default_config_has_two_sources() {
+    fn test_default_config_has_three_sources() {
         let config = AppConfig::default();
-        assert_eq!(config.collector.sources.len(), 2);
+        assert_eq!(config.collector.sources.len(), 3);
         assert_eq!(config.collector.sources[0].id, "claude-code");
         assert_eq!(config.collector.sources[1].id, "cursor");
+        assert_eq!(config.collector.sources[2].id, "codebuddy-cli");
+        assert!(!config.collector.sources[2].enabled);
     }
 
     #[test]
@@ -335,7 +367,7 @@ mod tests {
 
         let config = AppConfig::load(Some(&path)).unwrap();
         assert!(path.exists());
-        assert_eq!(config.collector.sources.len(), 2);
+        assert_eq!(config.collector.sources.len(), 3);
     }
 
     #[test]
@@ -361,8 +393,10 @@ interval_secs = 600
         .unwrap();
 
         let config = AppConfig::load(Some(file.path())).unwrap();
-        assert_eq!(config.collector.sources.len(), 1);
+        // 升级合并：自动追加 codebuddy-cli
+        assert_eq!(config.collector.sources.len(), 2);
         assert_eq!(config.collector.sources[0].id, "test-source");
+        assert!(config.collector.sources.iter().any(|s| s.id == "codebuddy-cli"));
         assert_eq!(config.sync.interval_secs, 600);
     }
 

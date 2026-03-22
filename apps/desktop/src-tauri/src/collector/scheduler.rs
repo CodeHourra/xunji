@@ -3,7 +3,8 @@
 //! ```text
 //! collect_all()
 //!   ├── Claude Code Collector → Vec<NormalizedSession>
-//!   ├── Cursor Collector      → Vec<NormalizedSession>
+//!   ├── Cursor Collector       → Vec<NormalizedSession>
+//!   ├── CodeBuddy CLI Collector→ Vec<NormalizedSession>
 //!   └── (future: other collectors...)
 //!           │
 //!           ▼
@@ -21,6 +22,7 @@ use crate::storage::models::NewMessage;
 use crate::storage::Database;
 
 use super::claude_code::ClaudeCodeCollector;
+use super::codebuddy_cli::CodeBuddyCliCollector;
 use super::cursor::CursorCollector;
 use super::normalizer::NormalizedSession;
 
@@ -64,6 +66,10 @@ impl<'a> CollectorScheduler<'a> {
                 }
                 "cursor" => {
                     let collector = CursorCollector::new(scan_dirs);
+                    collector.collect()
+                }
+                "codebuddy-cli" => {
+                    let collector = CodeBuddyCliCollector::new(scan_dirs);
                     collector.collect()
                 }
                 other => {

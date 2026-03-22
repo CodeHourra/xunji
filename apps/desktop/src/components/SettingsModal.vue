@@ -228,7 +228,7 @@ function toggleSource(source: SourceConfigDto) {
 }
 
 /** 与 `collector/scheduler.rs` 中 `match source.id` 已实现的采集器一致 */
-const IMPLEMENTED_SOURCE_IDS = new Set(['claude-code', 'cursor'])
+const IMPLEMENTED_SOURCE_IDS = new Set(['claude-code', 'cursor', 'codebuddy-cli'])
 
 function isSourceCollectorImplemented(id: string): boolean {
   return IMPLEMENTED_SOURCE_IDS.has(id)
@@ -460,8 +460,9 @@ const extraArgsStr = computed({
               </p>
               <n-alert type="info" :bordered="false" class="!text-xs mb-3">
                 <span class="leading-relaxed">
-                  当前版本已接入采集的数据源：<strong>Claude Code</strong>（<code class="text-[11px]">claude-code</code>，JSONL）
-                  与 <strong>Cursor</strong>（<code class="text-[11px]">cursor</code>，本地库）。
+                  当前版本已接入采集的数据源：<strong>Claude Code</strong>（<code class="text-[11px]">claude-code</code>，JSONL）、
+                  <strong>Cursor</strong>（<code class="text-[11px]">cursor</code>，本地库）、
+                  <strong>CodeBuddy CLI</strong>（<code class="text-[11px]">codebuddy-cli</code>，JSONL，默认关闭，需在设置中启用）。
                   若配置中存在其他 id，侧栏仍可显示品牌名，但<strong>同步时会跳过</strong>，直至后续版本接入采集器。
                 </span>
               </n-alert>
