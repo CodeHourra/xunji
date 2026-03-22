@@ -329,16 +329,21 @@ function openSearchHit(cardId: string, sessionId: string) {
           已加入全局分析队列，进度见右下角面板；请勿关闭应用。
         </p>
 
-        <div class="flex-1 min-h-0 overflow-y-auto space-y-2 pb-2">
-          <SessionCard
-            v-for="s in sessions.items"
-            :key="s.id"
-            :session="s"
-            :selectable="batchMode"
-            :selected="selectedIds.has(s.id)"
-            @analyze="onAnalyze"
-            @update:selected="onSelectionChange"
-          />
+        <!-- 与会话列表区：整体悬浮块 + 渐变底，与 KnowledgeView 内容区同一套层次逻辑；暗色同样保留外阴影表深度 -->
+        <div
+          class="flex-1 min-h-0 flex flex-col overflow-hidden rounded-xl border border-emerald-200/40 dark:border-emerald-900/35 bg-gradient-to-br from-emerald-50/90 via-teal-50/50 to-cyan-50/40 dark:from-emerald-950/25 dark:via-neutral-950 dark:to-slate-950/90 shadow-[0_2px_14px_-2px_rgba(16,185,129,0.12)] dark:shadow-[0_2px_16px_-4px_rgba(0,0,0,0.4)]"
+        >
+          <div class="flex-1 min-h-0 overflow-y-auto p-3 sm:p-4 space-y-2.5 pb-3">
+            <SessionCard
+              v-for="s in sessions.items"
+              :key="s.id"
+              :session="s"
+              :selectable="batchMode"
+              :selected="selectedIds.has(s.id)"
+              @analyze="onAnalyze"
+              @update:selected="onSelectionChange"
+            />
+          </div>
         </div>
 
         <div class="shrink-0 py-3 border-t border-neutral-200 dark:border-neutral-800">

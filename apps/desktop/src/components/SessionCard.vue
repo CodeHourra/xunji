@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
+import { getCardTypeLabel } from '@xunji/shared'
 import { NTag, NButton, NCheckbox } from 'naive-ui'
 import type { SessionSummary } from '../types'
 
@@ -50,15 +51,6 @@ const isAnalyzed = computed(
 )
 
 // ── 卡片元信息 ─────────────────────────────────────────────────────────────
-
-const cardTypeLabel: Record<string, string> = {
-  debug: 'Debug',
-  implementation: '实现',
-  research: '调研',
-  optimization: '优化',
-  learning: '学习',
-  other: '其他',
-}
 
 /** 标签数组，最多 3 个 */
 const tagList = computed(() => {
@@ -118,25 +110,65 @@ const sourceIcon = computed(() => {
 const actionLoading = computed(
   () => props.analyzing || props.session.status === 'analyzing',
 )
+
+/**
+ * 会话卡片视觉分层（与 KnowledgeView 条目对齐）：
+ * - 默认：半透底 + 固定轻阴影；浅/深用同一套「阴影表层次」逻辑（暗色同样保留 shadow，不靠纯扁平）
+ * - hover：仅描边变化，不抬升阴影（与知识库一致）
+ * - 批量选中：ring + 加粗边框 + 渐变底 + 更强阴影，避免仅靠淡绿底不够醒目
+ */
+const cardSurfaceClass = computed(() => {
+  const baseDisabled = isSelectDisabled.value
+    ? 'cursor-default opacity-60'
+    : 'cursor-pointer'
+
+  // 批量选中：强对比（与列表区渐变底区分仍清晰）
+  if (props.selectable && props.selected) {
+    return [
+      baseDisabled,
+      'border-2 border-brand-500 dark:border-brand-400',
+      'bg-gradient-to-br from-brand-50/95 to-emerald-50/90 dark:from-brand-950/55 dark:to-emerald-950/40',
+      'shadow-[0_4px_24px_-4px_rgba(16,185,129,0.42)] dark:shadow-[0_4px_28px_-6px_rgba(16,185,129,0.36)]',
+      'ring-2 ring-brand-500/80 dark:ring-brand-400/70',
+    ]
+  }
+
+  // 默认卡片面：与 KnowledgeView 列表项同源 class
+  const knowledgeLike = [
+    'border border-white/70 dark:border-emerald-900/50',
+    'bg-white/85 dark:bg-neutral-900/75',
+    'shadow-[0_2px_14px_-2px_rgba(16,185,129,0.18)] dark:shadow-[0_2px_16px_-4px_rgba(0,0,0,0.45)]',
+    'backdrop-blur-sm',
+    'transition-[border-color] duration-150',
+    baseDisabled,
+  ]
+
+  if (isAnalyzed.value) {
+    return [
+      ...knowledgeLike,
+      'hover:border-emerald-300/55 dark:hover:border-emerald-700/45',
+    ]
+  }
+
+  // 未分析：虚线边框，仍保持同一套阴影逻辑
+  return [
+    ...knowledgeLike,
+    'border-emerald-200/65 dark:border-emerald-800/50 border-dashed',
+    'hover:border-emerald-400/75 dark:hover:border-emerald-600/55',
+  ]
+})
 </script>
 
 <template>
   <div
-    class="group relative rounded-lg border bg-white dark:bg-neutral-900 transition-all duration-150"
-    :class="[
-      isSelectDisabled ? 'cursor-default opacity-60' : 'cursor-pointer hover:shadow-sm',
-      selected
-        ? 'border-brand-400 dark:border-brand-600 bg-brand-50/40 dark:bg-brand-950/30'
-        : isAnalyzed
-          ? 'border-neutral-200 dark:border-neutral-800 hover:border-neutral-300 dark:hover:border-neutral-700'
-          : 'border-neutral-200/70 dark:border-neutral-800/70 border-dashed hover:border-neutral-300 dark:hover:border-neutral-700',
-    ]"
+    class="group relative rounded-xl"
+    :class="cardSurfaceClass"
     @click="openSession"
   >
-    <!-- 左侧高/中价值色条 -->
+    <!-- 左侧高/中价值色条（置于内容之上，避免与圆角/选中 ring 打架） -->
     <div
       v-if="barColor"
-      class="absolute left-0 top-2 bottom-2 w-[3px] rounded-r-full"
+      class="absolute left-0 top-2 bottom-2 w-[3px] rounded-r-full z-[1] pointer-events-none"
       :style="{ backgroundColor: barColor }"
     />
 
@@ -213,7 +245,7 @@ const actionLoading = computed(
               :bordered="false"
               type="info"
             >
-              {{ cardTypeLabel[session.cardType] ?? session.cardType }}
+              {{ getCardTypeLabel(session.cardType) }}
             </n-tag>
             <!-- 价值标签（始终展示，颜色随价值变化） -->
             <span

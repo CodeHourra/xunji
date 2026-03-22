@@ -1,6 +1,12 @@
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import UnoCSS from '@unocss/vite'
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+/** workspace 包：显式指向源码，避免部分环境下 node_modules 未链接导致解析失败 */
+const sharedRoot = path.resolve(__dirname, '../../packages/shared/src')
 
 const host = process.env.TAURI_DEV_HOST
 
@@ -8,6 +14,9 @@ export default defineConfig({
   plugins: [vue(), UnoCSS()],
   // 强制 vue 单例，防止 bun/pnpm 混合安装导致多份 Vue 实例
   resolve: {
+    alias: {
+      '@xunji/shared': sharedRoot,
+    },
     dedupe: ['vue'],
   },
   clearScreen: false,
