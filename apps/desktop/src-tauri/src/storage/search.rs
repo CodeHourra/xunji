@@ -13,13 +13,15 @@ impl Database {
             return Ok(Vec::new());
         }
 
-        // 将 FTS MATCH 条件与 card_filter 的常规条件合并
+        // 将 FTS MATCH 条件与 card_filter 的常规条件合并。
+        // 注意：FTS5 要求 MATCH 左侧必须是虚拟表名（如 cards_fts），不能用 JOIN 别名 `fts`，
+        // 否则任意关键词都会触发 “no such column: fts”（解析器把别名误当成列）。
         let (where_sql, filter_params) = build_card_where(filters);
         let where_clause = if where_sql.is_empty() {
-            " WHERE fts MATCH ?".to_string()
+            " WHERE cards_fts MATCH ?".to_string()
         } else {
             let rest = where_sql.strip_prefix(" WHERE ").unwrap_or(&where_sql);
-            format!(" WHERE fts MATCH ? AND ({})", rest)
+            format!(" WHERE cards_fts MATCH ? AND ({})", rest)
         };
 
         let sql = format!(
