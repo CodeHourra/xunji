@@ -480,6 +480,9 @@ impl Database {
     }
 
     /// 增量同步后刷新会话元数据（CodeBuddy 等数据源重扫时更新项目名与展示标题）
+    ///
+    /// `analysis_title`：采集端有值（如 CodeBuddy 工作区 index）时写入；为 `None` 时不覆盖库内已有列，
+    /// 避免 Claude/Cursor 等恒为 `None` 的重同步把 `update_session_analysis_meta` 写入的展示标题抹成 NULL。
     pub fn update_session_resync_metadata(
         &self,
         id: &str,
@@ -489,7 +492,7 @@ impl Database {
         analysis_title: Option<&str>,
     ) -> DbResult<()> {
         let n = self.conn().execute(
-            "UPDATE sessions SET message_count = ?1, project_path = ?2, project_name = ?3, analysis_title = ?4 WHERE id = ?5",
+            "UPDATE sessions SET message_count = ?1, project_path = ?2, project_name = ?3, analysis_title = COALESCE(?4, analysis_title) WHERE id = ?5",
             params![message_count, project_path, project_name, analysis_title, id],
         )?;
         if n == 0 {
@@ -544,5 +547,78 @@ impl Database {
             })
         })?;
         rows.collect::<Result<Vec<_>, _>>().map_err(DbError::from)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Database;
+
+    /// 回归：Claude/Cursor 重同步时采集端 `analysis_title` 为 None，不得抹掉
+    /// `update_session_analysis_meta` 已写入的展示标题（见 docs/踩坑 同名文档）。
+    #[test]
+    fn resync_metadata_preserves_analysis_title_when_collector_sends_none() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db_path = dir.path().join("t.db");
+        let db = Database::open(&db_path).expect("open db");
+
+        let id = db
+            .insert_session(
+                "cursor",
+                "sess-1",
+                "local",
+                None,
+                None,
+                1,
+                None,
+                "/tmp/raw",
+                "2025-01-01T00:00:00Z",
+                "2025-01-01T00:00:00Z",
+                None,
+            )
+            .expect("insert");
+
+        db.update_session_analysis_meta(&id, "分析写入的标题", "low", "note")
+            .expect("analysis meta");
+
+        db.update_session_resync_metadata(&id, 3, None, None, None)
+            .expect("resync");
+
+        let s = db.get_session(&id).expect("get");
+        assert_eq!(
+            s.analysis_title.as_deref(),
+            Some("分析写入的标题"),
+            "COALESCE(NULL, analysis_title) 应保留库内标题"
+        );
+    }
+
+    /// 采集端显式提供标题时仍应更新（如 CodeBuddy index 名称）。
+    #[test]
+    fn resync_metadata_updates_analysis_title_when_collector_provides_some() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db_path = dir.path().join("t2.db");
+        let db = Database::open(&db_path).expect("open db");
+
+        let id = db
+            .insert_session(
+                "codebuddy-cli",
+                "sess-2",
+                "local",
+                None,
+                None,
+                1,
+                None,
+                "/tmp/raw2",
+                "2025-01-01T00:00:00Z",
+                "2025-01-01T00:00:00Z",
+                None,
+            )
+            .expect("insert");
+
+        db.update_session_resync_metadata(&id, 2, None, None, Some("来自采集的标题"))
+            .expect("resync");
+
+        let s = db.get_session(&id).expect("get");
+        assert_eq!(s.analysis_title.as_deref(), Some("来自采集的标题"));
     }
 }
