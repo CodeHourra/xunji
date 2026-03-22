@@ -62,12 +62,13 @@ pub struct Session {
     pub error_message: Option<String>,
 }
 
-/// 会话列表轻量版（不含 hash、raw_path 等详情字段）
+/// 会话列表轻量版（列表所需路径 / 首条 user 预览等；不含 content_hash）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionSummary {
     pub id: String,
     pub source_id: String,
+    /// 数据源侧会话标识（如 JSONL 元数据中的 sessionId）
     pub session_id: String,
     pub source_host: String,
     pub project_path: Option<String>,
@@ -98,6 +99,15 @@ pub struct SessionSummary {
     /// 最新知识卡片标签（逗号分隔字符串，如 "Rust,SQLite,FTS5"）
     #[serde(default)]
     pub card_tags: Option<String>,
+    /// 原始会话文件路径（如 JSONL），列表与 tooltip 展示
+    #[serde(default)]
+    pub raw_path: Option<String>,
+    /// 分析失败原因（status = error 时由 update_session_error 写入）
+    #[serde(default)]
+    pub error_message: Option<String>,
+    /// 首条 user 消息正文（SQL 中 SUBSTR 限制长度），供列表主标题与延展 tooltip
+    #[serde(default)]
+    pub first_user_preview: Option<String>,
 }
 
 // ─────────────────────────────── 消息 ─────────────────────────────────
@@ -174,6 +184,12 @@ pub struct Card {
     /// LLM 提炼时识别到的技术栈（如 Rust、SQLite、Tauri 等），逗号分隔存储
     #[serde(default)]
     pub tech_stack: Vec<String>,
+    /// 来源会话在数据源侧的标识（`sessions.session_id`，非 DB 主键 `sessions.id`）
+    #[serde(default)]
+    pub source_session_external_id: Option<String>,
+    /// 来源会话路径：优先 `raw_path`，否则 `project_path`（与列表会话路径语义一致）
+    #[serde(default)]
+    pub source_session_path: Option<String>,
 }
 
 /// 卡片列表轻量版（不含 note、memory、skill 等大字段）

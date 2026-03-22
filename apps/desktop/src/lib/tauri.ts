@@ -18,6 +18,7 @@ import type {
   Session,
   SessionGroupCount,
   SessionListParams,
+  SessionFilterPayload,
   SessionSummary,
   SyncResult,
   TagCount,
@@ -37,6 +38,34 @@ export const api = {
       status: params.status ?? null,
       page: params.page ?? null,
       pageSize: params.pageSize ?? null,
+    }),
+
+  /**
+   * 按当前筛选批量删除会话（与 listSessions 条件一致）。
+   * 仅删除应用库内记录，不删除本地源文件。
+   */
+  /** 多组筛选并集下的会话数量（与 deleteSessionsByFilterGroups 范围一致） */
+  countSessionsByFilterGroups: (groups: SessionFilterPayload[]) =>
+    invoke<number>('count_sessions_by_filter_groups', {
+      groups: groups.map((g) => ({
+        source: g.source ?? null,
+        host: g.host ?? null,
+        project: g.project ?? null,
+        status: g.status ?? null,
+        search: null,
+      })),
+    }),
+
+  /** 按多组筛选并集批量删除会话（会话整理多选） */
+  deleteSessionsByFilterGroups: (groups: SessionFilterPayload[]) =>
+    invoke<number>('delete_sessions_by_filter_groups', {
+      groups: groups.map((g) => ({
+        source: g.source ?? null,
+        host: g.host ?? null,
+        project: g.project ?? null,
+        status: g.status ?? null,
+        search: null,
+      })),
     }),
 
   /** 获取单个会话 */
@@ -94,4 +123,19 @@ export const api = {
    * 用于设置页「自动检测」，避免用户手填路径。
    */
   probeCliTools: () => invoke<CliProbeResult[]>('probe_cli_tools'),
+
+  /** 单条笔记导出为 Markdown（路径由系统「另存为」决定） */
+  exportCardMarkdown: (cardId: string, filePath: string) =>
+    invoke<void>('export_card_markdown', { cardId, filePath }),
+
+  /** 按 id 列表导出多文件到目录 */
+  exportCardsMarkdownDir: (cardIds: string[], dirPath: string) =>
+    invoke<number>('export_cards_markdown_dir', { cardIds, dirPath }),
+
+  /** 库内全部卡片导出到目录（无视筛选） */
+  exportAllCardsMarkdownDir: (dirPath: string) =>
+    invoke<number>('export_all_cards_markdown_dir', { dirPath }),
+
+  /** 库内卡片总数 */
+  countAllCards: () => invoke<number>('count_all_cards'),
 }

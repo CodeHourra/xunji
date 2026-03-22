@@ -21,6 +21,23 @@ use crate::storage::models::{Card, Message, NewCard, PaginatedResult, Session, S
 use crate::storage::Database;
 use crate::AppState;
 
+/// 校验多组会话筛选：非空，且每组至少包含 source / host / project / status 之一。
+fn validate_session_filter_groups(groups: &[SessionFilters]) -> Result<(), String> {
+    if groups.is_empty() {
+        return Err("请至少指定一组筛选条件".to_string());
+    }
+    for (i, g) in groups.iter().enumerate() {
+        if g.source.is_none()
+            && g.host.is_none()
+            && g.project.is_none()
+            && g.status.is_none()
+        {
+            return Err(format!("第 {} 组筛选条件为空", i + 1));
+        }
+    }
+    Ok(())
+}
+
 /// Sidecar `judge_value` 返回结构（字段名与 TS 一致）
 #[derive(Debug, serde::Deserialize)]
 struct JudgeValueResult {
@@ -82,6 +99,38 @@ pub async fn list_sessions(
     })
     .await
     .map_err(|e| format!("list_sessions join 失败: {}", e))?
+}
+
+/// 统计多组筛选并集下的会话数量（确认弹窗用，与 `delete_sessions_by_filter_groups` 范围一致）。
+#[tauri::command(rename_all = "camelCase")]
+pub async fn count_sessions_by_filter_groups(
+    state: State<'_, AppState>,
+    groups: Vec<SessionFilters>,
+) -> Result<u64, String> {
+    validate_session_filter_groups(&groups)?;
+    let db = state.db.clone();
+    tokio::task::spawn_blocking(move || {
+        db.count_sessions_by_filter_groups(&groups)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("count_sessions_by_filter_groups join 失败: {}", e))?
+}
+
+/// 按多组筛选并集批量删除会话（侧栏「会话整理」多选）。
+#[tauri::command(rename_all = "camelCase")]
+pub async fn delete_sessions_by_filter_groups(
+    state: State<'_, AppState>,
+    groups: Vec<SessionFilters>,
+) -> Result<u64, String> {
+    validate_session_filter_groups(&groups)?;
+    let db = state.db.clone();
+    tokio::task::spawn_blocking(move || {
+        db.delete_sessions_by_filter_groups(&groups)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("delete_sessions_by_filter_groups join 失败: {}", e))?
 }
 
 /// 获取会话完整信息。
@@ -217,7 +266,7 @@ fn run_distill_pipeline(
                 init_params,
                 std::time::Duration::from_secs(30),
             )
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| format!("Sidecar init 失败：{}", e))?;
 
         // ── 第一步：轻量价值判断（PROMPT_B_LIGHT） ──
         let judge: JudgeValueResult = sidecar
@@ -226,7 +275,7 @@ fn run_distill_pipeline(
                 serde_json::json!({ "content": content, "traceId": trace_id }),
                 std::time::Duration::from_secs(120),
             )
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| format!("价值判断（judge_value）失败：{}", e))?;
 
         let v_norm = judge.value.to_lowercase();
         log::info!(
@@ -279,7 +328,7 @@ fn run_distill_pipeline(
                 serde_json::json!({ "content": content, "traceId": trace_id }),
                 std::time::Duration::from_secs(300),
             )
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| format!("完整提炼（distill_full）失败：{}", e))?;
 
         log::info!(
             "trace_id={} distill_full 解析入库: tags 条目数={} {:?} | tech_stack 条目数={} {:?}",

@@ -1,9 +1,84 @@
+use std::collections::HashSet;
+
 use chrono::Utc;
 use rusqlite::params;
+use rusqlite::Transaction;
 use uuid::Uuid;
 
 use super::db::{Database, DbError, DbResult};
 use super::models::*;
+
+/// 侧栏树第三层占位：与 `Sidebar.vue` 中 `item.project ?? '(未关联项目)'` 一致，
+/// 对应数据库中 `project_name` 为 NULL 的会话行。
+const UNLINKED_PROJECT_LABEL: &str = "(未关联项目)";
+
+/// 与 `list_sessions` / `delete_sessions_by_filter_groups` 共用的动态 WHERE 片段。
+///
+/// 返回 `(WHERE 子句含关键字或空串, 绑定参数)`；无筛选条件时 WHERE 为空。
+fn session_filters_where_clause(
+    filters: &SessionFilters,
+) -> (String, Vec<Box<dyn rusqlite::types::ToSql>>) {
+    let mut conditions = Vec::new();
+    let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+
+    if let Some(ref source) = filters.source {
+        conditions.push("source_id = ?");
+        param_values.push(Box::new(source.clone()));
+    }
+    if let Some(ref host) = filters.host {
+        conditions.push("source_host = ?");
+        param_values.push(Box::new(host.clone()));
+    }
+    if let Some(ref project) = filters.project {
+        if project == UNLINKED_PROJECT_LABEL {
+            // 未关联项目：库内为 NULL，不能与字面量「(未关联项目)」等值匹配
+            conditions.push("project_name IS NULL");
+        } else {
+            conditions.push("(project_name = ? OR project_path = ?)");
+            param_values.push(Box::new(project.clone()));
+            param_values.push(Box::new(project.clone()));
+        }
+    }
+    if let Some(ref status) = filters.status {
+        conditions.push("status = ?");
+        param_values.push(Box::new(status.clone()));
+    }
+
+    let where_clause = if conditions.is_empty() {
+        String::new()
+    } else {
+        format!(" WHERE {}", conditions.join(" AND "))
+    };
+    (where_clause, param_values)
+}
+
+/// 单会话级联删除（与 `cards::delete_cards_for_session` 逻辑一致，放在同一事务内供批量调用）。
+fn delete_session_cascade_tx(tx: &Transaction<'_>, session_db_id: &str) -> DbResult<()> {
+    let mut stmt = tx.prepare("SELECT id FROM cards WHERE session_id = ?")?;
+    let card_ids: Vec<String> = stmt
+        .query_map(params![session_db_id], |row| row.get(0))?
+        .collect::<Result<Vec<_>, _>>()?;
+    drop(stmt);
+
+    for cid in &card_ids {
+        tx.execute("DELETE FROM card_tags WHERE card_id = ?", params![cid])?;
+        tx.execute(
+            "DELETE FROM cards_fts WHERE rowid = (SELECT rowid FROM cards WHERE id = ?)",
+            params![cid],
+        )?;
+        tx.execute("DELETE FROM cards WHERE id = ?", params![cid])?;
+    }
+
+    tx.execute(
+        "DELETE FROM messages WHERE session_id = ?",
+        params![session_db_id],
+    )?;
+    let n = tx.execute("DELETE FROM sessions WHERE id = ?", params![session_db_id])?;
+    if n == 0 {
+        return Err(DbError::NotFound(format!("session {}", session_db_id)));
+    }
+    Ok(())
+}
 
 /// 从查询行映射 SessionSummary（列顺序需与 SESSION_SUMMARY_COLUMNS 一致）
 fn session_summary_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<SessionSummary> {
@@ -27,6 +102,9 @@ fn session_summary_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Session
         card_summary: row.get(15)?,
         card_type: row.get(16)?,
         card_tags: row.get(17)?,
+        raw_path: row.get(18)?,
+        error_message: row.get(19)?,
+        first_user_preview: row.get(20)?,
     })
 }
 
@@ -40,6 +118,9 @@ fn session_summary_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Session
 /// - 15   : card_summary → COALESCE(card.summary, s.analysis_note)
 /// - 16   : card_type   → COALESCE(card.type,   s.analysis_type)
 /// - 17   : card_tags
+/// - 18   : raw_path
+/// - 19   : error_message
+/// - 20   : first_user_preview（首条 user，SUBSTR 防超大文本）
 ///
 /// card_title / card_summary / card_type 均以 analysis_* 列兜底，
 /// 确保低/无价值会话（无 Card 产出）在列表中也能展示类型徽章、标题和摘要。
@@ -65,7 +146,11 @@ const SESSION_SUMMARY_COLUMNS: &str = "\
        JOIN tags t ON ct.tag_id = t.id \
        WHERE ct.card_id = ( \
            SELECT c.id FROM cards c WHERE c.session_id = s.id ORDER BY c.created_at DESC LIMIT 1 \
-       ))";
+       )), \
+    s.raw_path, s.error_message, \
+    (SELECT SUBSTR(m.content, 1, 4096) FROM messages m \
+       WHERE m.session_id = s.id AND m.role = 'user' \
+       ORDER BY m.seq_order ASC LIMIT 1)";
 
 impl Database {
     /// 导入会话。使用 INSERT OR IGNORE 实现去重（唯一键: session_id + source_host）。
@@ -205,33 +290,7 @@ impl Database {
         page: u32,
         page_size: u32,
     ) -> DbResult<PaginatedResult<SessionSummary>> {
-        // 动态拼装 WHERE 子句
-        let mut conditions = Vec::new();
-        let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
-
-        if let Some(ref source) = filters.source {
-            conditions.push("source_id = ?");
-            param_values.push(Box::new(source.clone()));
-        }
-        if let Some(ref host) = filters.host {
-            conditions.push("source_host = ?");
-            param_values.push(Box::new(host.clone()));
-        }
-        if let Some(ref project) = filters.project {
-            conditions.push("(project_name = ? OR project_path = ?)");
-            param_values.push(Box::new(project.clone()));
-            param_values.push(Box::new(project.clone()));
-        }
-        if let Some(ref status) = filters.status {
-            conditions.push("status = ?");
-            param_values.push(Box::new(status.clone()));
-        }
-
-        let where_clause = if conditions.is_empty() {
-            String::new()
-        } else {
-            format!(" WHERE {}", conditions.join(" AND "))
-        };
+        let (where_clause, param_values) = session_filters_where_clause(filters);
 
         let conn = self.conn();
 
@@ -266,6 +325,61 @@ impl Database {
             page,
             page_size,
         })
+    }
+
+    /// 多组筛选条件的会话 id 并集（去重），每组语义与 `list_sessions` 单组筛选一致。
+    ///
+    /// ```text
+    /// group1 OR group2 OR ...  →  HashSet<id>
+    /// ```
+    fn collect_session_ids_union(&self, groups: &[SessionFilters]) -> DbResult<Vec<String>> {
+        let mut set: HashSet<String> = HashSet::new();
+        for g in groups {
+            let (where_clause, param_values) = session_filters_where_clause(g);
+            let list_sql = format!("SELECT id FROM sessions{}", where_clause);
+            let conn = self.conn();
+            let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+                param_values.iter().map(|b| b.as_ref()).collect();
+            let mut stmt = conn.prepare(&list_sql)?;
+            let chunk: Vec<String> = stmt
+                .query_map(param_refs.as_slice(), |row| row.get(0))?
+                .collect::<Result<Vec<_>, _>>()?;
+            for id in chunk {
+                set.insert(id);
+            }
+        }
+        Ok(set.into_iter().collect())
+    }
+
+    /// 统计多组筛选并集下的会话数量（用于确认弹窗）。
+    pub fn count_sessions_by_filter_groups(&self, groups: &[SessionFilters]) -> DbResult<u64> {
+        let ids = self.collect_session_ids_union(groups)?;
+        Ok(ids.len() as u64)
+    }
+
+    /// 按多组筛选并集批量删除会话（侧栏「会话整理」多选）。
+    ///
+    /// 级联删除：card_tags → cards_fts → cards → messages → sessions。
+    /// 仅删除应用库内记录，不修改本地源文件。
+    pub fn delete_sessions_by_filter_groups(&self, groups: &[SessionFilters]) -> DbResult<u64> {
+        let ids = self.collect_session_ids_union(groups)?;
+        if ids.is_empty() {
+            log::info!("按多组筛选批量删除会话：无匹配行");
+            return Ok(0);
+        }
+
+        let mut conn = self.conn();
+        let tx = conn.transaction()?;
+        for id in &ids {
+            delete_session_cascade_tx(&tx, id)?;
+        }
+        tx.commit()?;
+        log::info!(
+            "按多组筛选批量删除会话完成：共 {} 条（组数={}）",
+            ids.len(),
+            groups.len()
+        );
+        Ok(ids.len() as u64)
     }
 
     /// 检查是否已存在相同的会话（去重键: session_id + source_host）

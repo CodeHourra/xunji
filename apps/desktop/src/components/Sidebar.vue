@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { computed, h, onMounted, ref, watch } from 'vue'
-import { NTree, NTag, NEmpty, NSpin, NTooltip } from 'naive-ui'
+import { NTree, NTag, NEmpty, NSpin, NTooltip, NButton, useDialog, useMessage } from 'naive-ui'
 import type { TreeOption } from 'naive-ui'
 import { useUiStore } from '../stores/ui'
 import { useFiltersStore } from '../stores/filters'
 import { useSessionsStore } from '../stores/sessions'
 import { useSidebarStore } from '../stores/sidebar'
 import { getCardTypeLabel } from '@xunji/shared'
+import { api } from '../lib/tauri'
+import type { SessionFilterPayload } from '../types'
 
 // 品牌图标（官方 logo，通过 Vite asset URL 导入）
 import claudeCodeIcon from '../assets/brands/claude-code.png?url'
@@ -17,6 +19,19 @@ const ui = useUiStore()
 const filters = useFiltersStore()
 const sessions = useSessionsStore()
 const sidebar = useSidebarStore()
+const dialog = useDialog()
+const message = useMessage()
+
+/** 侧栏批量移除会话时的按钮 loading */
+const removeGroupBusy = ref(false)
+
+/**
+ * 会话整理模式：目录树显示多选框，勾选多个分组后可批量删除（筛选并集去重）。
+ * 进入整理时列表重置为全部对话；单击节点筛选列表的逻辑仍保留。
+ */
+const sessionOrganizeMode = ref(false)
+/** 整理模式下 NTree 勾选的分组 key（与 treeData 中 key 一致） */
+const checkedKeys = ref<string[]>([])
 
 // ────────────────── 数据源配置 ──────────────────
 
@@ -150,8 +165,64 @@ watch(treeData, (data) => {
   }
 }, { immediate: true })
 
+/** 将树节点 key 转为后端 `SessionFilters`（并合并当前 `statusFilter`） */
+function treeKeyToFilterPayload(key: string): SessionFilterPayload {
+  const status = filters.statusFilter || null
+  if (key.startsWith('src:')) {
+    return { source: key.slice(4), host: null, project: null, status }
+  }
+  if (key.startsWith('host:')) {
+    const parts = key.slice(5).split('/')
+    return {
+      source: parts[0],
+      host: parts.slice(1).join('/') || null,
+      project: null,
+      status,
+    }
+  }
+  if (key.startsWith('proj:')) {
+    const rest = key.slice(5)
+    const firstSlash = rest.indexOf('/')
+    const sourceId = rest.slice(0, firstSlash)
+    const afterSource = rest.slice(firstSlash + 1)
+    const secondSlash = afterSource.indexOf('/')
+    const host = afterSource.slice(0, secondSlash)
+    const project = afterSource.slice(secondSlash + 1)
+    return { source: sourceId, host, project, status }
+  }
+  throw new Error(`无效的树节点 key: ${key}`)
+}
+
+function exitSessionOrganizeMode() {
+  sessionOrganizeMode.value = false
+  checkedKeys.value = []
+}
+
+/** 进入整理：列表回到全部对话，便于专注勾选分组 */
+function enterSessionOrganizeMode() {
+  checkedKeys.value = []
+  filters.resetSessions()
+  selectedKeys.value = []
+  sessions.page = 1
+  void sessions.loadPage()
+  sessionOrganizeMode.value = true
+}
+
+function toggleSessionOrganizeMode() {
+  if (sessionOrganizeMode.value) {
+    exitSessionOrganizeMode()
+  } else {
+    enterSessionOrganizeMode()
+  }
+}
+
 /** 解析 key 并设置对应的筛选条件 */
 function onTreeSelect(keys: string[]) {
+  if (sessionOrganizeMode.value) {
+    selectedKeys.value = keys.length ? [keys[0] as string] : []
+    return
+  }
+
   const key = keys[0]
   if (!key) return
 
@@ -184,6 +255,7 @@ function onTreeSelect(keys: string[]) {
 
 /** "全部对话"按钮：清空筛选 + 清空树选中 + 重新加载 */
 function selectAll() {
+  exitSessionOrganizeMode()
   filters.resetSessions()
   selectedKeys.value = []
   sessions.page = 1
@@ -192,6 +264,81 @@ function selectAll() {
 
 /** 当前是否处于"全部对话"模式 */
 const isAllMode = computed(() => selectedKeys.value.length === 0)
+
+/** 仅在「会话整理」且已勾选分组时展示移除按钮 */
+const showRemoveSessionsButton = computed(
+  () =>
+    !sidebar.groupsLoading
+    && treeData.value.length > 0
+    && sessionOrganizeMode.value
+    && checkedKeys.value.length > 0,
+)
+
+/**
+ * summaryText 用于确认框文案。
+ */
+async function confirmAndRemoveSessionGroups(
+  groups: SessionFilterPayload[],
+  summaryText: string,
+) {
+  if (groups.length === 0 || removeGroupBusy.value)
+    return
+
+  removeGroupBusy.value = true
+  let n = 0
+  try {
+    n = await api.countSessionsByFilterGroups(groups)
+  }
+  catch (e) {
+    message.error(e instanceof Error ? e.message : String(e))
+    removeGroupBusy.value = false
+    return
+  }
+  removeGroupBusy.value = false
+
+  if (n === 0) {
+    message.info('没有可删除的会话')
+    return
+  }
+
+  dialog.warning({
+    title: '移除会话',
+    content: `将永久删除 ${summaryText} 所覆盖范围内当前匹配的 ${n} 条会话及其消息、关联笔记。多选时同一会话只计一次。仅删除应用内数据，不会删除本地目录中的原始文件。此操作不可恢复。`,
+    positiveText: '移除',
+    negativeText: '取消',
+    onPositiveClick: async () => {
+      removeGroupBusy.value = true
+      try {
+        const deleted = await api.deleteSessionsByFilterGroups(groups)
+        message.success(`已移除 ${deleted} 条会话`)
+        exitSessionOrganizeMode()
+        selectAll()
+        await sidebar.loadSessionGroups()
+        await sessions.loadPage()
+      }
+      catch (e) {
+        message.error(e instanceof Error ? e.message : String(e))
+        throw e
+      }
+      finally {
+        removeGroupBusy.value = false
+      }
+    },
+  })
+}
+
+/** 整理模式：移除勾选的多组并集 */
+function removeCheckedSessionGroups() {
+  if (!sessionOrganizeMode.value || checkedKeys.value.length === 0)
+    return
+  const groups = checkedKeys.value.map(k => treeKeyToFilterPayload(k))
+  const summary = `已选的 ${groups.length} 个分组`
+  void confirmAndRemoveSessionGroups(groups, summary)
+}
+
+function onUpdateCheckedKeys(keys: Array<string | number>) {
+  checkedKeys.value = keys.map(String)
+}
 
 const totalCards = computed(() =>
   sidebar.cardTypes.reduce((sum, t) => sum + t.count, 0),
@@ -224,6 +371,7 @@ watch(() => ui.activeTab, (tab) => {
   if (tab === 'sessions') {
     void sidebar.loadSessionGroups()
   } else {
+    exitSessionOrganizeMode()
     void sidebar.loadLibraryMeta()
   }
 })
@@ -250,6 +398,52 @@ watch(() => ui.activeTab, (tab) => {
 
         <div class="mx-3 my-1 border-t border-neutral-200/70 dark:border-neutral-800" />
 
+        <!-- 会话整理：多选分组后批量删除（仅应用内数据） -->
+        <div
+          v-if="!sidebar.groupsLoading && treeData.length"
+          class="px-2 pb-2 space-y-1.5"
+        >
+          <n-button
+            size="small"
+            block
+            secondary
+            :type="sessionOrganizeMode ? 'primary' : 'default'"
+            @click="toggleSessionOrganizeMode"
+          >
+            <template #icon>
+              <span class="i-lucide-list-checks w-4 h-4" />
+            </template>
+            {{ sessionOrganizeMode ? '退出整理' : '会话整理' }}
+          </n-button>
+          <p
+            v-if="sessionOrganizeMode"
+            class="text-[11px] text-neutral-500 dark:text-neutral-400 leading-snug px-0.5"
+          >
+            勾选目录中的多个分组，再点「移除已选分组会话」。与顶部列表状态筛选组合时，每组都会带上当前状态条件。
+          </p>
+          <p
+            v-else-if="isAllMode"
+            class="text-[11px] text-neutral-500 dark:text-neutral-400 leading-snug px-0.5"
+          >
+            点「会话整理」后勾选目录中的分组，即可批量移除（仅删除应用内记录）。
+          </p>
+          <n-button
+            v-if="showRemoveSessionsButton"
+            secondary
+            type="error"
+            size="small"
+            block
+            :loading="removeGroupBusy"
+            :disabled="sessions.loading"
+            @click="removeCheckedSessionGroups"
+          >
+            <template #icon>
+              <span class="i-lucide-trash-2 w-4 h-4" />
+            </template>
+            移除已选分组会话
+          </n-button>
+        </div>
+
         <!-- 加载中 -->
         <div v-if="sidebar.groupsLoading" class="flex items-center justify-center py-8">
           <n-spin size="small" />
@@ -261,12 +455,16 @@ watch(() => ui.activeTab, (tab) => {
           :data="treeData"
           :selected-keys="selectedKeys"
           :expanded-keys="expandedKeys"
+          :checked-keys="checkedKeys"
+          :checkable="sessionOrganizeMode"
+          :cascade="true"
           :render-label="renderLabel"
           block-line
           selectable
           expand-on-click
           class="px-1 py-1 sidebar-tree"
           @update:selected-keys="onTreeSelect"
+          @update:checked-keys="onUpdateCheckedKeys"
           @update:expanded-keys="(keys: string[]) => expandedKeys = keys"
         />
 

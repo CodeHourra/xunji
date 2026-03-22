@@ -1,3 +1,4 @@
+use rusqlite::params;
 use rusqlite::Connection;
 
 use super::db::DbResult;
@@ -28,6 +29,9 @@ pub fn run(conn: &Connection) -> DbResult<()> {
     }
     if version < 5 {
         migrate_v5(conn)?;
+    }
+    if version < 6 {
+        migrate_v6(conn)?;
     }
 
     Ok(())
@@ -255,6 +259,47 @@ fn migrate_v5(conn: &Connection) -> DbResult<()> {
     )?;
 
     log::info!("数据库迁移 v5 完成");
+    Ok(())
+}
+
+/// v6 迁移：将 sessions 中仍含百分号编码的 `project_path` / `project_name` 解码为 UTF-8 展示。
+///
+/// 与采集端 [`crate::path_local::decode_cursor_folder_to_local_path`] 对齐，修复升级前已入库的数据，
+/// 避免侧栏树与列表继续显示 `%E5%90%91...`。
+fn migrate_v6(conn: &Connection) -> DbResult<()> {
+    log::info!("执行数据库迁移 v6：解码 sessions 中百分号编码的项目路径...");
+
+    let mut stmt = conn.prepare(
+        "SELECT id, project_path, project_name FROM sessions
+         WHERE (project_path IS NOT NULL AND instr(project_path, '%') > 0)
+            OR (project_name IS NOT NULL AND instr(project_name, '%') > 0)",
+    )?;
+
+    let rows: Vec<(String, Option<String>, Option<String>)> = stmt
+        .query_map([], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let mut upd = conn.prepare(
+        "UPDATE sessions SET project_path = ?1, project_name = ?2 WHERE id = ?3",
+    )?;
+
+    let mut fixed = 0usize;
+    for (id, pp, pn) in rows {
+        let (new_pp, new_pn) = crate::path_local::decode_session_paths(pp.clone(), pn.clone());
+        if new_pp != pp || new_pn != pn {
+            upd.execute(params![new_pp, new_pn, id])?;
+            fixed += 1;
+        }
+    }
+
+    if fixed > 0 {
+        log::info!("数据库迁移 v6：已修正 {} 条会话的项目路径/名称", fixed);
+    }
+
+    conn.execute_batch("PRAGMA user_version = 6;")?;
+    log::info!("数据库迁移 v6 完成");
     Ok(())
 }
 ///

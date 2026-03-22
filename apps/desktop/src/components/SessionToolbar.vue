@@ -26,16 +26,17 @@ function toggleStatus(val: 'analyzed' | 'pending') {
 
 <template>
   <div class="flex flex-col gap-3 mb-4 shrink-0">
-    <!-- 搜索行 -->
-    <div class="flex items-center gap-2">
-      <n-input
-        v-model:value="search.query"
-        placeholder="搜索对话…"
-        clearable
-        size="medium"
-        class="flex-1"
-        @clear="refresh"
-      >
+    <!-- 搜索行：FTS 搜的是知识库卡片，非会话标题（v0.1.1 文案明确语义） -->
+    <div class="flex flex-col gap-1">
+      <div class="flex items-center gap-2">
+        <n-input
+          v-model:value="search.query"
+          placeholder="搜索知识笔记（标题 / 摘要 / 正文全文）"
+          clearable
+          size="medium"
+          class="flex-1"
+          @clear="refresh"
+        >
         <template #prefix>
           <span class="i-lucide-search w-4 h-4 opacity-40" />
         </template>
@@ -83,6 +84,10 @@ function toggleStatus(val: 'analyzed' | 'pending') {
           待分析
         </span>
       </n-button>
+      </div>
+      <p class="text-[11px] text-neutral-400 dark:text-neutral-500 leading-snug pl-0.5">
+        搜索对象为<strong class="text-neutral-500 dark:text-neutral-400">已入库的知识卡片</strong>（FTS），不包含未提炼的会话标题。
+      </p>
     </div>
 
     <!-- 状态行 -->

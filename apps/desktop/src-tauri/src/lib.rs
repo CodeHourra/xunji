@@ -1,5 +1,7 @@
 mod commands;
 mod collector;
+/// Cursor workspace 路径百分号解码（采集与 DB 迁移共用）
+mod path_local;
 pub mod config;
 mod sidecar;
 mod storage;
@@ -74,16 +76,23 @@ pub fn run() {
     };
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .manage(state)
         .invoke_handler(tauri::generate_handler![
             commands::sync::sync_all,
             commands::sessions::list_sessions,
+            commands::sessions::count_sessions_by_filter_groups,
+            commands::sessions::delete_sessions_by_filter_groups,
             commands::sessions::get_session,
             commands::sessions::get_session_messages,
             commands::sessions::distill_session,
             commands::cards::search_cards,
             commands::cards::list_cards,
             commands::cards::get_card,
+            commands::export::export_card_markdown,
+            commands::export::export_cards_markdown_dir,
+            commands::export::export_all_cards_markdown_dir,
+            commands::export::count_all_cards,
             commands::sidebar::get_session_groups,
             commands::sidebar::list_tags,
             commands::sidebar::list_tech_stack_counts,
