@@ -19,122 +19,140 @@
 
 下列图中标注「逻辑」的连线在数据库中**没有** `FOREIGN KEY` 约束。
 
+**图例**：字段类型在图中使用 Mermaid 支持的写法（`string` / `int` / `float`），与 SQLite 的 `TEXT` / `INTEGER` / `REAL` 一一对应；字段行尾双引号内为「中文说明 + 英文字段名」。  
+**说明**：部分预览器对 `erDiagram` 的 `实体["别名"] { ... }` 或 SQL 风格类型名解析不兼容，会导致实体框只显示 “(no attributes)”。下图使用**纯表名 + 标准类型**，以保证属性能渲染；中文表名见下表。
+
+| 表名 `identifier` | 中文含义 |
+|---------------------|----------|
+| `sources` | 数据源 |
+| `sessions` | 会话 |
+| `messages` | 对话消息 |
+| `cards` | 知识卡片 |
+| `tags` | 标签 |
+| `card_tags` | 卡片与标签关联（多对多） |
+| `categories` | 分类 |
+| `sync_log` | 同步日志 |
+| `token_usage` | Token 用量 / 计费流水 |
+
 ```mermaid
 erDiagram
     sources {
-        TEXT id PK
-        TEXT name
-        INTEGER enabled
-        TEXT scan_paths
-        TEXT last_sync
-        TEXT config
+        string id PK "主键 id"
+        string name "显示名称 name"
+        int enabled "是否启用 enabled"
+        string scan_paths "扫描目录列表 JSON scan_paths"
+        string last_sync "上次同步时间 last_sync"
+        string config "扩展配置 JSON config"
     }
 
     sessions {
-        TEXT id PK
-        TEXT source_id "逻辑→sources.id"
-        TEXT session_id
-        TEXT source_host
-        TEXT project_path
-        TEXT project_name
-        INTEGER message_count
-        TEXT content_hash
-        TEXT raw_path
-        TEXT created_at
-        TEXT updated_at
-        TEXT status
-        TEXT value
-        INTEGER has_updates
-        TEXT analyzed_at
-        TEXT error_message
-        TEXT analysis_note "v3"
-        TEXT analysis_title "v4"
-        TEXT analysis_type "v4"
+        string id PK "主键 id(应用内 UUID)"
+        string source_id "数据源 id source_id, 逻辑关联 sources.id"
+        string session_id "数据源侧会话标识 session_id"
+        string source_host "来源主机 source_host, 去重维度之一"
+        string project_path "项目路径 project_path"
+        string project_name "项目名称 project_name"
+        int message_count "消息条数 message_count"
+        string content_hash "内容摘要哈希 content_hash"
+        string raw_path "原始文件路径 raw_path"
+        string created_at "创建时间 created_at"
+        string updated_at "更新时间 updated_at"
+        string status "分析状态 status"
+        string value "价值等级 value"
+        int has_updates "是否有新消息 has_updates"
+        string analyzed_at "分析完成时间 analyzed_at"
+        string error_message "分析错误信息 error_message"
+        string analysis_note "低价值说明 analysis_note (v3)"
+        string analysis_title "列表展示标题 analysis_title (v4)"
+        string analysis_type "分析类型徽章 analysis_type (v4)"
     }
 
     messages {
-        TEXT id PK
-        TEXT session_id FK
-        TEXT role
-        TEXT content
-        TEXT timestamp
-        INTEGER tokens_in
-        INTEGER tokens_out
-        INTEGER seq_order
+        string id PK "主键 id"
+        string session_id "所属会话 id session_id, FK sessions.id"
+        string role "角色 role"
+        string content "正文 content"
+        string timestamp "时间戳 timestamp"
+        int tokens_in "输入 token tokens_in"
+        int tokens_out "输出 token tokens_out"
+        int seq_order "会话内顺序 seq_order"
     }
 
     cards {
-        TEXT id PK
-        TEXT session_id FK
-        TEXT title
-        TEXT type
-        TEXT value
-        TEXT summary
-        TEXT note
-        TEXT category_id "逻辑→categories.id"
-        TEXT memory
-        TEXT skill
-        TEXT source_name
-        TEXT project_name
-        INTEGER prompt_tokens
-        INTEGER completion_tokens
-        REAL cost_yuan
-        TEXT feedback
-        TEXT created_at
-        TEXT updated_at
-        TEXT tech_stack "v5"
+        string id PK "主键 id"
+        string session_id "来源会话 id session_id, FK sessions.id"
+        string title "标题 title"
+        string type "知识类型 type"
+        string value "价值等级 value"
+        string summary "一句话摘要 summary"
+        string note "笔记正文 Markdown note"
+        string category_id "分类 id category_id, 逻辑 categories.id"
+        string memory "Memory 规则 memory"
+        string skill "Skill 定义 skill"
+        string source_name "数据源名称冗余 source_name"
+        string project_name "项目名称冗余 project_name"
+        int prompt_tokens "提炼提示 token prompt_tokens"
+        int completion_tokens "提炼补全 token completion_tokens"
+        float cost_yuan "费用(元) cost_yuan"
+        string feedback "用户反馈 feedback"
+        string created_at "创建时间 created_at"
+        string updated_at "更新时间 updated_at"
+        string tech_stack "技术栈逗号串 tech_stack (v5)"
     }
 
     tags {
-        TEXT id PK
-        TEXT name UK
-        TEXT type
-        INTEGER count
+        string id PK "主键 id"
+        string name "标签名 name, 唯一"
+        string type "标签来源 type"
+        int count "引用计数 count"
     }
 
     card_tags {
-        TEXT card_id PK_FK
-        TEXT tag_id PK_FK
+        string card_id "卡片 id card_id, FK cards.id"
+        string tag_id "标签 id tag_id, FK tags.id"
     }
 
     categories {
-        TEXT id PK
-        TEXT name
-        TEXT parent_id FK
-        INTEGER sort_order
+        string id PK "主键 id"
+        string name "分类名称 name"
+        string parent_id "父分类 id parent_id, FK categories.id"
+        int sort_order "排序 sort_order"
     }
 
     sync_log {
-        TEXT id PK
-        TEXT source_id "逻辑→sources.id"
-        TEXT started_at
-        TEXT finished_at
-        INTEGER sessions_found
-        INTEGER sessions_new
-        INTEGER sessions_updated
-        TEXT status
+        string id PK "主键 id"
+        string source_id "数据源 id source_id, 逻辑 sources.id"
+        string started_at "开始时间 started_at"
+        string finished_at "结束时间 finished_at"
+        int sessions_found "扫描到会话数 sessions_found"
+        int sessions_new "新导入会话数 sessions_new"
+        int sessions_updated "检测到更新数 sessions_updated"
+        string status "任务状态 status"
     }
 
     token_usage {
-        TEXT id PK
-        TEXT card_id FK_nullable
-        TEXT provider
-        TEXT model
-        INTEGER prompt_tokens
-        INTEGER completion_tokens
-        REAL cost_yuan
-        TEXT created_at
+        string id PK "主键 id"
+        string card_id "关联卡片 id card_id, 可空, FK cards.id"
+        string provider "模型提供商 provider"
+        string model "模型名 model"
+        int prompt_tokens "提示 token prompt_tokens"
+        int completion_tokens "补全 token completion_tokens"
+        float cost_yuan "费用(元) cost_yuan"
+        string created_at "记录时间 created_at"
     }
 
-    sources ||--o{ sessions : "source_id 逻辑"
-    sources ||--o{ sync_log : "source_id 逻辑"
-    sessions ||--o{ messages : "1:N"
-    sessions ||--o{ cards : "1:N"
-    cards }o--o{ tags : "N:M card_tags"
-    categories ||--o| categories : "parent_id 自关联"
-    cards }o--o| categories : "category_id 逻辑"
-    cards ||--o{ token_usage : "card_id 可空"
+    sources ||--o{ sessions : "按数据源归类(逻辑关联 source_id)"
+    sources ||--o{ sync_log : "同步任务归属(逻辑关联 source_id)"
+    sessions ||--o{ messages : "会话包含多条消息(一对多)"
+    sessions ||--o{ cards : "会话可有多张卡片(一对多)"
+    cards ||--o{ card_tags : "卡片到关联表"
+    card_tags }o--|| tags : "关联表到标签"
+    categories ||--o| categories : "父子分类(自关联 parent_id)"
+    cards }o--o| categories : "卡片归属分类(逻辑 category_id)"
+    cards ||--o{ token_usage : "提炼计费流水(card_id 可空)"
 ```
+
+**字段名说明**：`tags` 表中业务列在 SQLite 里名为 `type`；Mermaid 属性名若使用 `type` 易与语法关键字冲突，图中写作 `tag_type`，并在注释中标明「列名 type」。
 
 ---
 

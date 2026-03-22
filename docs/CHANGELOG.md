@@ -5,10 +5,12 @@
 
 ---
 
-## 0.1.3（2026-03-23）
+## 0.1.2（2026-03-22 – 2026-03-23）
 
 ### 新增与优化
 
+- **采集**：支持 **CodeBuddy** 对话记录导入，扫描路径与问渠 `scanner/codebuddy.py` 一致：macOS `~/Library/Application Support/CodeBuddyExtension/Data`、Linux `~/.local/share/CodeBuddyExtension`，递归识别其下含 `index.json` 与 `messages/` 的会话目录；需在设置 → 数据源中开启「CodeBuddy」，默认关闭以免未安装时无效扫盘
+- **配置**：旧版配置文件在启动时会自动补充 CodeBuddy 数据源项（若尚无）；若仍仅为旧默认 `~/.codebuddy`，启动时会迁移为上述 CodeBuddyExtension 根目录
 - **CodeBuddy 采集与展示**
   - 从工作区目录 `index.json` 的 `conversations[].name` 写入会话展示标题（`analysis_title`），与 IDE 会话列表一致；列表/详情在未提炼笔记前即可显示可读标题
   - 侧栏「项目」分组名：由 `Workspace Folder` / `Workspace Path` 推导；若路径末级为纯数字或长 hex 等无辨识度目录名，则尝试使用上一级目录名
@@ -16,22 +18,13 @@
 - **旧版 CodeBuddy 消息**：兼容 `content` 为**单字符字符串数组**（拼接后与新版等价）、以及旧版字段名 **`Workspace Path:`**（与新版 `Workspace Folder:` 并存，优先匹配 Folder）
 - **修复**：首条用户消息中 `content` 为**整段字符串**（非 text 块数组）时，可正确解析工作区路径，避免侧栏项目名退化为 `history` 下哈希目录名
 
-### 其他
-
-- 会话列表未分析时优先展示上述采集标题；会话详情顶栏支持 `analysisTitle`；对话回放中工具标签匹配更宽松（含下划线等工具名）
-
----
-
-## 0.1.2（2026-03-22）
-
-### 新增与优化
-
-- **采集**：支持 **CodeBuddy** 对话记录导入，扫描路径与问渠 `scanner/codebuddy.py` 一致：macOS `~/Library/Application Support/CodeBuddyExtension/Data`、Linux `~/.local/share/CodeBuddyExtension`，递归识别其下含 `index.json` 与 `messages/` 的会话目录；需在设置 → 数据源中开启「CodeBuddy」，默认关闭以免未安装时无效扫盘
-- **配置**：旧版配置文件在启动时会自动补充 CodeBuddy 数据源项（若尚无）；若仍仅为旧默认 `~/.codebuddy`，启动时会迁移为上述 CodeBuddyExtension 根目录
-
 ### 修正
 
 - **CodeBuddy 路径**：此前按 `~/.codebuddy/projects/*.jsonl` 采集与产品实际会话存储不符，已改为扩展数据目录（见上）
+
+### 其他
+
+- 会话列表未分析时优先展示上述采集标题；会话详情顶栏支持 `analysisTitle`；对话回放中工具标签匹配更宽松（含下划线等工具名）
 
 ---
 
