@@ -195,6 +195,12 @@ export const useAnalysisQueueStore = defineStore('analysisQueue', () => {
       const result = await api.distillSession(next.sessionId)
       clearElapsedTimer()
 
+      if (import.meta.env.DEV) {
+        console.info(
+          `[distill] traceId=${result.traceId} sessionId=${next.sessionId}（与终端 Rust/sidecar 日志 grep 同一 id）`,
+        )
+      }
+
       next.status = 'done'
       if (result.isLowValue) {
         next.outcome = 'low_value'

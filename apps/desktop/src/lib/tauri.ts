@@ -76,6 +76,9 @@ export const api = {
   /** 获取所有标签及数量（知识库侧栏） */
   listTags: () => invoke<TagCount[]>('list_tags'),
 
+  /** 获取技术栈聚合及数量（来自 cards.tech_stack 列） */
+  listTechStackCounts: () => invoke<TagCount[]>('list_tech_stack_counts'),
+
   /** 获取知识类型统计（知识库侧栏） */
   listCardTypes: () => invoke<TypeCount[]>('list_card_types'),
 

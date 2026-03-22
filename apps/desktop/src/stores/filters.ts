@@ -22,7 +22,7 @@ export const useFiltersStore = defineStore('filters', () => {
   const statusFilter = ref<'' | 'analyzed' | 'pending'>('')
 
   // ── 知识库筛选 ──
-  /** 知识类型（如 "debug"、"architecture"） */
+  /** 知识类型筛选（存英文枚举键，与 `CARD_TYPE_LABELS` / getCardTypeLabel 一致） */
   const cardType = ref('')
   /** 选中的标签列表 */
   const selectedTags = ref<string[]>([])

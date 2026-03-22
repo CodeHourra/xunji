@@ -1,3 +1,5 @@
+import type { CardType } from './cardTypes'
+
 export interface NormalizedSession {
   sourceId: string
   sessionId: string
@@ -41,15 +43,7 @@ export interface KnowledgeCard {
 
 export type ValueLevel = 'high' | 'medium' | 'low' | 'none'
 
-export type CardType =
-  | 'debug'
-  | 'architecture'
-  | 'performance'
-  | 'best-practice'
-  | 'concept'
-  | 'tool-usage'
-  | 'refactor'
-  | 'other'
+export type { CardType } from './cardTypes'
 
 export interface DistillResult {
   title: string

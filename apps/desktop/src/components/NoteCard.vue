@@ -24,6 +24,7 @@ const emit = defineEmits<{
     <NoteHeader
       :title="card.title"
       :summary="card.summary"
+      :card-type="card.type"
       :tags="card.tags"
       :tech-stack="card.techStack"
     />

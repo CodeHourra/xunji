@@ -16,11 +16,13 @@ export interface SyncResult {
  * - isLowValue = false：已生成笔记卡片，card 有值
  */
 export interface DistillSessionResult {
+  /** 本次分析 trace，与终端 sidecar / Rust 日志一致，grep 此 id 可串联全流程 */
+  traceId: string
   value: string
   isLowValue: boolean
   /** 低/无价值时：由 reason 截取的简短标题 */
   cardTitle: string | null
-  /** 低/无价值时：judge_value 返回的对话类型（debug / learning / …） */
+  /** 低/无价值时：judge_value 返回的对话类型（英文枚举，展示用 @xunji/shared getCardTypeLabel） */
   cardType: string | null
   /** 低/无价值时的原因说明（作为摘要展示） */
   reason: string | null
@@ -55,7 +57,7 @@ export interface SessionSummary {
   cardTitle?: string | null
   /** 最新知识卡片一句话摘要 */
   cardSummary?: string | null
-  /** 最新知识卡片类型（debug / implementation / …） */
+  /** 最新知识卡片类型（英文枚举，展示用 getCardTypeLabel） */
   cardType?: string | null
   /** 最新知识卡片标签（逗号分隔，如 "Rust,SQLite"） */
   cardTags?: string | null

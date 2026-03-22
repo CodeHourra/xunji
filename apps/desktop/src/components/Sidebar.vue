@@ -6,6 +6,7 @@ import { useUiStore } from '../stores/ui'
 import { useFiltersStore } from '../stores/filters'
 import { useSessionsStore } from '../stores/sessions'
 import { useSidebarStore } from '../stores/sidebar'
+import { getCardTypeLabel } from '@xunji/shared'
 
 // 品牌图标（官方 logo，通过 Vite asset URL 导入）
 import claudeCodeIcon from '../assets/brands/claude-code.png?url'
@@ -192,23 +193,6 @@ function selectAll() {
 /** 当前是否处于"全部对话"模式 */
 const isAllMode = computed(() => selectedKeys.value.length === 0)
 
-// ────────────────── 知识库类型中文映射 ──────────────────
-
-const TYPE_LABELS: Record<string, string> = {
-  debug: '调试',
-  architecture: '架构',
-  performance: '性能',
-  'best-practice': '最佳实践',
-  concept: '概念',
-  'tool-usage': '工具使用',
-  refactor: '重构',
-  other: '其他',
-}
-
-function typeLabel(name: string) {
-  return TYPE_LABELS[name] ?? name
-}
-
 const totalCards = computed(() =>
   sidebar.cardTypes.reduce((sum, t) => sum + t.count, 0),
 )
@@ -321,7 +305,7 @@ watch(() => ui.activeTab, (tab) => {
               class="cursor-pointer"
               @click="selectCardType(t.name)"
             >
-              {{ typeLabel(t.name) }} {{ t.count }}
+              {{ getCardTypeLabel(t.name) }} {{ t.count }}
             </n-tag>
           </div>
         </div>
@@ -337,7 +321,10 @@ watch(() => ui.activeTab, (tab) => {
           <div v-if="sidebar.tagsLoading" class="flex items-center justify-center py-4">
             <n-spin size="small" />
           </div>
-          <div v-else-if="sidebar.tags.length" class="flex flex-wrap gap-1.5">
+          <div
+            v-else-if="sidebar.tags.length"
+            class="flex flex-wrap gap-1.5 max-h-64 overflow-y-auto pr-0.5"
+          >
             <n-tag
               v-for="tag in sidebar.tags"
               :key="tag.name"
@@ -359,13 +346,39 @@ watch(() => ui.activeTab, (tab) => {
 
         <div class="mx-3 my-1.5 border-t border-neutral-200/70 dark:border-neutral-800" />
 
-        <!-- 技术栈（v0.2） -->
+        <!-- 技术栈：由 cards.tech_stack 列聚合；单卡详情仍在笔记标题下 -->
         <div class="px-3 py-2">
-          <div class="flex items-center gap-1.5 text-neutral-400 dark:text-neutral-500 mb-2">
+          <div class="flex items-center gap-1.5 text-neutral-400 dark:text-neutral-500 mb-2.5">
             <span class="i-lucide-layers w-3.5 h-3.5" />
             <span class="text-[11px] font-semibold uppercase tracking-widest">技术栈</span>
           </div>
-          <p class="text-[11px] text-neutral-400 dark:text-neutral-500 py-2">v0.2 版本支持</p>
+          <div v-if="sidebar.tagsLoading" class="flex items-center justify-center py-3">
+            <n-spin size="small" />
+          </div>
+          <div
+            v-else-if="sidebar.techStacks.length"
+            class="flex flex-wrap gap-1.5 max-h-52 overflow-y-auto pr-0.5"
+          >
+            <n-tag
+              v-for="row in sidebar.techStacks"
+              :key="row.name"
+              type="info"
+              size="small"
+              round
+              :bordered="false"
+            >
+              {{ row.name }}
+              <template #avatar>
+                <span class="text-[10px] opacity-60 ml-0.5">{{ row.count }}</span>
+              </template>
+            </n-tag>
+          </div>
+          <p v-else class="text-[11px] text-neutral-400 dark:text-neutral-500 py-2 leading-relaxed">
+            暂无。需会话经提炼写入 tech_stack；排查终端
+            <code class="text-[10px] opacity-90">normalize: tech_stack</code>
+            与
+            <code class="text-[10px] opacity-90">创建卡片: … tech_stack列</code>
+          </p>
         </div>
       </template>
 

@@ -13,8 +13,9 @@ export const useSidebarStore = defineStore('sidebar', () => {
   const sessionGroups = ref<SessionGroupCount[]>([])
   const groupsLoading = ref(false)
 
-  // ── 知识库标签 & 类型 ──
+  // ── 知识库标签、技术栈 & 类型 ──
   const tags = ref<TagCount[]>([])
+  const techStacks = ref<TagCount[]>([])
   const cardTypes = ref<TypeCount[]>([])
   const tagsLoading = ref(false)
 
@@ -34,8 +35,13 @@ export const useSidebarStore = defineStore('sidebar', () => {
   async function loadLibraryMeta() {
     tagsLoading.value = true
     try {
-      const [t, c] = await Promise.all([api.listTags(), api.listCardTypes()])
+      const [t, ts, c] = await Promise.all([
+        api.listTags(),
+        api.listTechStackCounts(),
+        api.listCardTypes(),
+      ])
       tags.value = t
+      techStacks.value = ts
       cardTypes.value = c
     } catch (e) {
       console.error('[sidebar] loadLibraryMeta', e)
@@ -48,6 +54,7 @@ export const useSidebarStore = defineStore('sidebar', () => {
     sessionGroups,
     groupsLoading,
     tags,
+    techStacks,
     cardTypes,
     tagsLoading,
     loadSessionGroups,
