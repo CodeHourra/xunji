@@ -19,6 +19,8 @@ use std::path::{Path, PathBuf};
 
 use rusqlite::Connection;
 
+use crate::path_local::decode_cursor_folder_to_local_path;
+
 use super::normalizer::{NormalizedMessage, NormalizedSession};
 
 /// Cursor 数据采集器
@@ -178,13 +180,19 @@ fn scan_workspaces(
     Ok(map)
 }
 
-/// 从 workspace.json 读取项目路径
+/// 从 workspace.json 读取项目路径（本地绝对路径字符串）
+///
+/// 解码逻辑见 [`crate::path_local::decode_cursor_folder_to_local_path`]。
 fn read_workspace_project_path(path: &Path) -> Option<String> {
     let content = std::fs::read_to_string(path).ok()?;
     let data: serde_json::Value = serde_json::from_str(&content).ok()?;
     let folder = data["folder"].as_str()?;
-    // 去掉 "file://" 前缀
-    Some(folder.strip_prefix("file://").unwrap_or(folder).to_string())
+    let out = decode_cursor_folder_to_local_path(folder);
+    if out.is_empty() {
+        None
+    } else {
+        Some(out)
+    }
 }
 
 /// 从 workspace 的 state.vscdb 读取 allComposers 列表
@@ -542,6 +550,21 @@ mod tests {
 
         let result = read_workspace_project_path(&json_path);
         assert_eq!(result, Some("/Users/steve/myproject".to_string()));
+    }
+
+    #[test]
+    fn test_read_workspace_project_path_percent_encoded() {
+        let dir = tempfile::tempdir().unwrap();
+        let json_path = dir.path().join("workspace.json");
+        // 路径末段经百分号编码（UTF-8）：向善数据
+        std::fs::write(
+            &json_path,
+            r#"{"folder":"file:///Users/steve/%E5%90%91%E5%96%84%E6%95%B0%E6%8D%AE"}"#,
+        )
+        .unwrap();
+
+        let result = read_workspace_project_path(&json_path);
+        assert_eq!(result, Some("/Users/steve/向善数据".to_string()));
     }
 
     /// 使用本地真实 Cursor 数据验证（需要 --ignored 运行）
