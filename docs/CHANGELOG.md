@@ -5,6 +5,15 @@
 
 ---
 
+## 0.1.4（2026-03-25）
+
+### 新增与优化
+
+- **桌面更新**：`tauri-plugin-updater`；`SettingsModal` 增加检查更新；`tauri.conf.json` 配置 `updater`（公钥、`endpoints`）；Windows 侧 `tauri.windows.conf.json` 等
+- **CI / Release**：`.github/workflows/release.yml` 多平台 `tauri build`、上传安装包与 `latest.json`；文档 `docs/桌面应用-Release与自动更新.md`
+
+---
+
 ## 0.1.3（2026-03-25）
 
 ### 新增与优化

@@ -1,6 +1,6 @@
 [package]
 name = "xunji-desktop"
-version = "0.1.3"
+version = "0.1.4"
 description = "寻迹 - AI 编程知识管理平台"
 authors = ["XunJi"]
 edition = "2021"
@@ -29,6 +29,10 @@ env_logger = "0.11"
 thiserror = "1"
 serde_yaml = "0.9"
 tauri-plugin-dialog = "2"
+# 应用内检查更新、下载安装包（与 tauri.conf plugins.updater 配套）
+tauri-plugin-updater = "2"
+# 安装更新后重启进程（前端 relaunch）
+tauri-plugin-process = "2"
 # workspace.json 中 folder 对非 ASCII 路径常使用百分号编码，需按 URL 解析后还原本地路径
 url = "2"
 

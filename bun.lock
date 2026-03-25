@@ -7,10 +7,12 @@
     },
     "apps/desktop": {
       "name": "@xunji/desktop",
-      "version": "0.1.0",
+      "version": "0.1.3",
       "dependencies": {
         "@tauri-apps/api": "^2",
         "@tauri-apps/plugin-dialog": "^2",
+        "@tauri-apps/plugin-process": "^2",
+        "@tauri-apps/plugin-updater": "^2",
         "@vueuse/core": "^14.2.1",
         "@xunji/shared": "workspace:*",
         "highlight.js": "^11.11.1",
@@ -39,18 +41,18 @@
     },
     "packages/mcp-server": {
       "name": "@xunji/mcp-server",
-      "version": "0.1.0",
+      "version": "0.1.3",
       "dependencies": {
         "@xunji/shared": "workspace:*",
       },
     },
     "packages/shared": {
       "name": "@xunji/shared",
-      "version": "0.1.0",
+      "version": "0.1.3",
     },
     "packages/sidecar": {
       "name": "@xunji/sidecar",
-      "version": "0.1.0",
+      "version": "0.1.3",
       "dependencies": {
         "@xunji/shared": "workspace:*",
         "openai": "^4",
@@ -228,6 +230,10 @@
     "@tauri-apps/cli-win32-x64-msvc": ["@tauri-apps/cli-win32-x64-msvc@2.10.1", "https://mirrors.tencent.com/npm/@tauri-apps/cli-win32-x64-msvc/-/cli-win32-x64-msvc-2.10.1.tgz", { "os": "win32", "cpu": "x64" }, "sha512-6Cn7YpPFwzChy0ERz6djKEmUehWrYlM+xTaNzGPgZocw3BD7OfwfWHKVWxXzdjEW2KfKkHddfdxK1XXTYqBRLg=="],
 
     "@tauri-apps/plugin-dialog": ["@tauri-apps/plugin-dialog@2.6.0", "https://mirrors.tencent.com/npm/@tauri-apps/plugin-dialog/-/plugin-dialog-2.6.0.tgz", { "dependencies": { "@tauri-apps/api": "^2.8.0" } }, "sha512-q4Uq3eY87TdcYzXACiYSPhmpBA76shgmQswGkSVio4C82Sz2W4iehe9TnKYwbq7weHiL88Yw19XZm7v28+Micg=="],
+
+    "@tauri-apps/plugin-process": ["@tauri-apps/plugin-process@2.3.1", "https://mirrors.tencent.com/npm/@tauri-apps/plugin-process/-/plugin-process-2.3.1.tgz", { "dependencies": { "@tauri-apps/api": "^2.8.0" } }, "sha512-nCa4fGVaDL/B9ai03VyPOjfAHRHSBz5v6F/ObsB73r/dA3MHHhZtldaDMIc0V/pnUw9ehzr2iEG+XkSEyC0JJA=="],
+
+    "@tauri-apps/plugin-updater": ["@tauri-apps/plugin-updater@2.10.0", "https://mirrors.tencent.com/npm/@tauri-apps/plugin-updater/-/plugin-updater-2.10.0.tgz", { "dependencies": { "@tauri-apps/api": "^2.10.1" } }, "sha512-ljN8jPlnT0aSn8ecYhuBib84alxfMx6Hc8vJSKMJyzGbTPFZAC44T2I1QNFZssgWKrAlofvJqCC6Rr472JWfkQ=="],
 
     "@types/bun": ["@types/bun@1.3.11", "https://mirrors.tencent.com/npm/@types/bun/-/bun-1.3.11.tgz", { "dependencies": { "bun-types": "1.3.11" } }, "sha512-5vPne5QvtpjGpsGYXiFyycfpDF2ECyPcTSsFBMa0fraoxiQyMJ3SmuQIGhzPg2WJuWxVBoxWJ2kClYTcw/4fAg=="],
 

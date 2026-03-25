@@ -9,6 +9,8 @@ dist/
 
 # Tauri
 apps/desktop/src-tauri/target/
+# 自动更新签名私钥（`tauri signer generate -w *.key`），切勿提交
+*.updater.key
 
 # Bun
 packages/sidecar/dist/
