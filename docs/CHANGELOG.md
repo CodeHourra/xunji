@@ -5,6 +5,21 @@
 
 ---
 
+## 0.1.3（2026-03-25）
+
+### 新增与优化
+
+- **知识库**：`CardFilters` / `list_cards` / `search_cards` 增加 `tech_stack` 筛选（AND；`cards.tech_stack` 逗号字段，`instr` 边界匹配、大小写不敏感）；前端 `filters.selectedTechStacks`、侧栏技术栈 chip 可切换、KnowledgeView 拉列表时传参
+- **侧栏**：知识库筛选区使用 `NCollapse` + `display-directive="if"`；去除标签/技术栈独立 `max-height` 滚动，统一由侧栏外层滚动；`:deep` 避免折叠内容区内部滚动条
+
+### 体验与修复
+
+- **分段控件**：`App.vue` 中 `button.segment-pill-btn` 去除 WebView 默认按钮外观；`TopBar`、`SessionToolbar`、`KnowledgeView` 统一分段样式与暗色变体
+- **SessionCard**：紧凑布局；选中态 `ring-inset`；底部元数据容器 `m-0 p-0`
+- **踩坑文档**：重命名为中文主文件名；新增 `docs/踩坑/README.md`；`ring` + `overflow-hidden` 裁切说明
+
+---
+
 ## 0.1.2（2026-03-22 – 2026-03-23）
 
 ### 新增与优化
