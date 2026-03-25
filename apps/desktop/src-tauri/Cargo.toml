@@ -1,6 +1,6 @@
 [package]
 name = "xunji-desktop"
-version = "0.1.3"
+version = "0.1.4"
 description = "寻迹 - AI 编程知识管理平台"
 authors = ["XunJi"]
 edition = "2021"
