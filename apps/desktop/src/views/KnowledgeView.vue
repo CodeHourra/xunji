@@ -52,6 +52,7 @@ async function load() {
     const r = await api.listCards({
       cardType: filters.cardType || undefined,
       tags: filters.selectedTags.length ? [...filters.selectedTags] : undefined,
+      techStack: filters.selectedTechStacks.length ? [...filters.selectedTechStacks] : undefined,
       page: page.value,
       pageSize: pageSize.value,
     })
@@ -69,12 +70,38 @@ onMounted(() => {
 })
 
 watch(
-  [() => filters.cardType, () => filters.selectedTags.length],
+  [
+    () => filters.cardType,
+    () => filters.selectedTags.length,
+    () => filters.selectedTechStacks.length,
+  ],
   () => {
     page.value = 1
     void load()
   },
 )
+
+/** 主区域展示用：是否与侧栏共同存在知识库筛选 */
+const hasLibraryFilters = computed(
+  () =>
+    !!filters.cardType
+    || filters.selectedTags.length > 0
+    || filters.selectedTechStacks.length > 0,
+)
+
+function removeTagFilter(name: string) {
+  const i = filters.selectedTags.indexOf(name)
+  if (i >= 0) {
+    filters.selectedTags.splice(i, 1)
+  }
+}
+
+function removeTechFilter(name: string) {
+  const i = filters.selectedTechStacks.indexOf(name)
+  if (i >= 0) {
+    filters.selectedTechStacks.splice(i, 1)
+  }
+}
 
 function open(c: CardSummary) {
   void router.push({
@@ -240,6 +267,47 @@ function onExportAll() {
         </div>
       </div>
     </header>
+
+    <!-- 与侧栏筛选联动：在主区域可摘除条件，无需回到侧栏 -->
+    <div
+      v-if="hasLibraryFilters"
+      class="shrink-0 flex flex-wrap items-center gap-2 mb-3 pb-3 border-b border-slate-100 dark:border-neutral-800"
+    >
+      <span class="text-[11px] text-slate-500 dark:text-neutral-400">当前筛选</span>
+      <n-tag
+        v-if="filters.cardType"
+        size="small"
+        closable
+        round
+        @close="filters.cardType = ''"
+      >
+        类型 · {{ getCardTypeLabel(filters.cardType) }}
+      </n-tag>
+      <n-tag
+        v-for="t in filters.selectedTags"
+        :key="'kf-tag-' + t"
+        size="small"
+        closable
+        round
+        @close="removeTagFilter(t)"
+      >
+        标签 · {{ t }}
+      </n-tag>
+      <n-tag
+        v-for="s in filters.selectedTechStacks"
+        :key="'kf-tech-' + s"
+        size="small"
+        closable
+        round
+        type="info"
+        @close="removeTechFilter(s)"
+      >
+        技术栈 · {{ s }}
+      </n-tag>
+      <n-button size="tiny" quaternary @click="filters.resetLibrary()">
+        全部清除
+      </n-button>
+    </div>
 
     <!-- 内容区 -->
     <div class="flex-1 min-h-0 overflow-y-auto pb-32">

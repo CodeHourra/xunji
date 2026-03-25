@@ -24,8 +24,10 @@ export const useFiltersStore = defineStore('filters', () => {
   // ── 知识库筛选 ──
   /** 知识类型筛选（存英文枚举键，与 `CARD_TYPE_LABELS` / getCardTypeLabel 一致） */
   const cardType = ref('')
-  /** 选中的标签列表 */
+  /** 选中的标签列表（list_cards 为 AND：笔记须同时带有所选标签） */
   const selectedTags = ref<string[]>([])
+  /** 选中的技术栈名称（与 list_tags 统计同源；AND 语义） */
+  const selectedTechStacks = ref<string[]>([])
 
   /** 重置对话记录筛选（点击"全部对话"时） */
   function resetSessions() {
@@ -39,6 +41,7 @@ export const useFiltersStore = defineStore('filters', () => {
   function resetLibrary() {
     cardType.value = ''
     selectedTags.value = []
+    selectedTechStacks.value = []
   }
 
   /** 全部重置 */
@@ -54,6 +57,7 @@ export const useFiltersStore = defineStore('filters', () => {
     statusFilter,
     cardType,
     selectedTags,
+    selectedTechStacks,
     resetSessions,
     resetLibrary,
     reset,

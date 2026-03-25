@@ -383,4 +383,6 @@ pub struct CardFilters {
     pub value: Option<String>,
     /// FTS5 全文搜索关键词
     pub search: Option<String>,
+    /// 按技术栈名称筛选（AND 语义；与 `cards.tech_stack` 逗号分隔字段逐 token 匹配，大小写不敏感）
+    pub tech_stack: Option<Vec<String>>,
 }

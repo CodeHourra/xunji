@@ -1,6 +1,16 @@
 <script setup lang="ts">
 import { computed, h, onMounted, ref, watch } from 'vue'
-import { NTree, NEmpty, NSpin, NTooltip, NButton, useDialog, useMessage } from 'naive-ui'
+import {
+  NTree,
+  NEmpty,
+  NSpin,
+  NTooltip,
+  NButton,
+  NCollapse,
+  NCollapseItem,
+  useDialog,
+  useMessage,
+} from 'naive-ui'
 import type { TreeOption } from 'naive-ui'
 import { useUiStore } from '../stores/ui'
 import { useFiltersStore } from '../stores/filters'
@@ -380,6 +390,30 @@ function toggleTag(tagName: string) {
   }
 }
 
+/** 技术栈 chip 切换（与标签同为多选 AND，写入 filters.selectedTechStacks） */
+function toggleTechStack(name: string) {
+  const idx = filters.selectedTechStacks.indexOf(name)
+  if (idx >= 0) {
+    filters.selectedTechStacks.splice(idx, 1)
+  } else {
+    filters.selectedTechStacks.push(name)
+  }
+}
+
+/** 知识库：是否存在生效筛选，用于展示「重置筛选」 */
+const libraryFiltersActive = computed(
+  () =>
+    !!filters.cardType
+    || filters.selectedTags.length > 0
+    || filters.selectedTechStacks.length > 0,
+)
+
+/**
+ * 知识库筛选折叠面板：默认全展开；display-directive=if 折叠时卸载内容减轻 DOM。
+ * 不设置 max-height / overflow-y，仅由侧栏最外层滚动。
+ */
+const libraryCollapseExpanded = ref<string[]>(['cardType', 'tags', 'techStack'])
+
 // ────────────────── 初始化与 Tab 切换时刷新 ──────────────────
 
 onMounted(() => {
@@ -401,7 +435,8 @@ watch(() => ui.activeTab, (tab) => {
 </script>
 
 <template>
-  <aside class="shrink-0 flex flex-col w-[260px] bg-white dark:bg-neutral-950 border-r border-slate-200 dark:border-neutral-800 select-none">
+  <!-- min-h-0：参与 flex 布局时让内层 overflow-y-auto 能正确截断高度，单滚动条生效 -->
+  <aside class="shrink-0 flex flex-col min-h-0 w-[260px] bg-white dark:bg-neutral-950 border-r border-slate-200 dark:border-neutral-800 select-none">
     <div class="flex-1 overflow-y-auto">
 
       <!-- ============== 对话记录模式 ============== -->
@@ -509,103 +544,156 @@ watch(() => ui.activeTab, (tab) => {
 
       <!-- ============== 知识库模式 ============== -->
       <template v-else>
-        <div class="flex-1 overflow-y-auto p-4 space-y-6">
-          <!-- 类型筛选 -->
-          <div>
-            <div class="text-[11px] font-semibold text-slate-400 dark:text-neutral-500 uppercase tracking-widest mb-3 flex items-center gap-1.5">
-              <span class="i-lucide-layout-grid w-3.5 h-3.5" />
-              类型
-            </div>
-            <div class="flex flex-wrap gap-2">
-              <span
-                :class="[
-                  'px-2.5 py-1 rounded-full text-xs font-medium cursor-pointer transition-colors',
-                  !filters.cardType
-                    ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/60'
-                    : 'text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-neutral-700 hover:bg-slate-50 dark:hover:bg-neutral-800'
-                ]"
-                @click="filters.cardType = ''"
-              >
-                全部 <span class="opacity-60 ml-0.5 text-[10px]">{{ totalCards }}</span>
-              </span>
-              <span
-                v-for="t in sidebar.cardTypes"
-                :key="t.name"
-                :class="[
-                  'px-2.5 py-1 rounded-full text-xs cursor-pointer transition-colors',
-                  filters.cardType === t.name
-                    ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/60 font-medium'
-                    : 'text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-neutral-700 hover:bg-slate-50 dark:hover:bg-neutral-800'
-                ]"
-                @click="selectCardType(t.name)"
-              >
-                {{ getCardTypeLabel(t.name) }} <span class="opacity-60 ml-0.5 text-[10px]">{{ t.count }}</span>
-              </span>
-            </div>
+        <!-- 不单独 overflow：与外层 aside 共用一个滚动条，避免类型/标签/技术栈多重竖条 -->
+        <div class="p-4 pb-6 space-y-6">
+          <!-- 有筛选时提供一键重置，避免类型/标签/技术栈分散清除 -->
+          <div
+            v-if="libraryFiltersActive"
+            class="flex items-center justify-between gap-2 rounded-lg border border-slate-200 dark:border-neutral-800 bg-slate-50/80 dark:bg-neutral-900/50 px-2.5 py-2"
+          >
+            <span class="text-[11px] text-slate-500 dark:text-neutral-400 leading-snug">已应用筛选</span>
+            <n-button size="tiny" secondary class="shrink-0" @click="filters.resetLibrary()">
+              重置
+            </n-button>
           </div>
 
-          <div class="h-px bg-slate-100 dark:bg-neutral-800" />
+          <!-- 类型 / 标签 / 技术栈：n-collapse 折叠；不设内层滚动，仅侧栏最外层 overflow-y-auto -->
+          <n-collapse
+            v-model:expanded-names="libraryCollapseExpanded"
+            display-directive="if"
+            :accordion="false"
+            size="small"
+            class="library-filters-collapse -mx-1"
+          >
+            <n-collapse-item name="cardType">
+              <template #header>
+                <div class="flex items-center gap-1.5 min-w-0 flex-1 pr-1">
+                  <span class="i-lucide-layout-grid w-3.5 h-3.5 shrink-0 opacity-70" />
+                  <span class="text-[11px] font-semibold text-slate-500 dark:text-neutral-400 uppercase tracking-widest">
+                    类型
+                  </span>
+                  <span
+                    v-if="filters.cardType"
+                    class="truncate text-[10px] font-medium text-emerald-600 dark:text-emerald-400 normal-case tracking-normal"
+                  >
+                    {{ getCardTypeLabel(filters.cardType) }}
+                  </span>
+                </div>
+              </template>
+              <p class="text-[10px] text-slate-400 dark:text-neutral-500 mb-2 leading-relaxed">
+                单选；点「全部」或已选类型可恢复不限类型。
+              </p>
+              <div class="flex flex-wrap gap-2">
+                <span
+                  :class="[
+                    'px-2.5 py-1 rounded-full text-xs font-medium cursor-pointer transition-colors',
+                    !filters.cardType
+                      ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/60'
+                      : 'text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-neutral-700 hover:bg-slate-50 dark:hover:bg-neutral-800',
+                  ]"
+                  @click="filters.cardType = ''"
+                >
+                  全部 <span class="opacity-60 ml-0.5 text-[10px]">{{ totalCards }}</span>
+                </span>
+                <span
+                  v-for="t in sidebar.cardTypes"
+                  :key="t.name"
+                  :class="[
+                    'px-2.5 py-1 rounded-full text-xs cursor-pointer transition-colors',
+                    filters.cardType === t.name
+                      ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/60 font-medium'
+                      : 'text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-neutral-700 hover:bg-slate-50 dark:hover:bg-neutral-800',
+                  ]"
+                  @click="selectCardType(t.name)"
+                >
+                  {{ getCardTypeLabel(t.name) }} <span class="opacity-60 ml-0.5 text-[10px]">{{ t.count }}</span>
+                </span>
+              </div>
+            </n-collapse-item>
 
-          <!-- 标签筛选 -->
-          <div>
-            <div class="text-[11px] font-semibold text-slate-400 dark:text-neutral-500 uppercase tracking-widest mb-3 flex items-center gap-1.5">
-              <span class="i-lucide-tags w-3.5 h-3.5" />
-              标签
-            </div>
-            <div v-if="sidebar.tagsLoading" class="flex items-center justify-center py-4">
-              <n-spin size="small" />
-            </div>
-            <div
-              v-else-if="sidebar.tags.length"
-              class="flex flex-wrap gap-1.5 max-h-64 overflow-y-auto pr-0.5"
-            >
-              <span
-                v-for="tag in sidebar.tags"
-                :key="tag.name"
-                :class="[
-                  'px-2.5 py-1 rounded-full text-xs cursor-pointer transition-colors',
-                  filters.selectedTags.includes(tag.name)
-                    ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/60 font-medium'
-                    : 'text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-neutral-700 hover:bg-slate-50 dark:hover:bg-neutral-800'
-                ]"
-                @click="toggleTag(tag.name)"
-              >
-                {{ tag.name }} <span class="opacity-50 ml-0.5 text-[10px]">{{ tag.count }}</span>
-              </span>
-            </div>
-            <n-empty v-else size="small" description="暂无标签" class="py-2" />
-          </div>
+            <n-collapse-item name="tags">
+              <template #header>
+                <div class="flex items-center gap-1.5 min-w-0 flex-1 pr-1">
+                  <span class="i-lucide-tags w-3.5 h-3.5 shrink-0 opacity-70" />
+                  <span class="text-[11px] font-semibold text-slate-500 dark:text-neutral-400 uppercase tracking-widest">
+                    标签
+                  </span>
+                  <span
+                    v-if="filters.selectedTags.length"
+                    class="text-[10px] font-medium text-emerald-600 dark:text-emerald-400 normal-case tracking-normal tabular-nums"
+                  >
+                    {{ filters.selectedTags.length }} 项
+                  </span>
+                </div>
+              </template>
+              <p class="text-[10px] text-slate-400 dark:text-neutral-500 mb-2 leading-relaxed">
+                多选为「且」：笔记须同时包含所选标签。
+              </p>
+              <div v-if="sidebar.tagsLoading" class="flex items-center justify-center py-4">
+                <n-spin size="small" />
+              </div>
+              <div v-else-if="sidebar.tags.length" class="flex flex-wrap gap-1.5">
+                <span
+                  v-for="tag in sidebar.tags"
+                  :key="tag.name"
+                  :class="[
+                    'px-2.5 py-1 rounded-full text-xs cursor-pointer transition-colors',
+                    filters.selectedTags.includes(tag.name)
+                      ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/60 font-medium'
+                      : 'text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-neutral-700 hover:bg-slate-50 dark:hover:bg-neutral-800',
+                  ]"
+                  @click="toggleTag(tag.name)"
+                >
+                  {{ tag.name }} <span class="opacity-50 ml-0.5 text-[10px]">{{ tag.count }}</span>
+                </span>
+              </div>
+              <n-empty v-else size="small" description="暂无标签" class="py-2" />
+            </n-collapse-item>
 
-          <div class="h-px bg-slate-100 dark:bg-neutral-800" />
-
-          <!-- 技术栈 -->
-          <div>
-            <div class="text-[11px] font-semibold text-slate-400 dark:text-neutral-500 uppercase tracking-widest mb-3 flex items-center gap-1.5">
-              <span class="i-lucide-layers w-3.5 h-3.5" />
-              技术栈
-            </div>
-            <div v-if="sidebar.tagsLoading" class="flex items-center justify-center py-3">
-              <n-spin size="small" />
-            </div>
-            <div
-              v-else-if="sidebar.techStacks.length"
-              class="flex flex-wrap gap-1.5 max-h-52 overflow-y-auto pr-0.5"
-            >
-              <span
-                v-for="row in sidebar.techStacks"
-                :key="row.name"
-                class="px-2.5 py-1 rounded-full text-xs font-medium text-blue-700 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 cursor-pointer"
-              >
-                {{ row.name }} <span class="opacity-60 ml-0.5 text-[10px]">{{ row.count }}</span>
-              </span>
-            </div>
-            <p v-else class="text-[11px] text-slate-400 dark:text-neutral-500 py-2 leading-relaxed">
-              暂无。需会话经提炼写入 tech_stack；排查终端
-              <code class="text-[10px] opacity-90">normalize: tech_stack</code>
-              与
-              <code class="text-[10px] opacity-90">创建卡片: … tech_stack列</code>
-            </p>
-          </div>
+            <n-collapse-item name="techStack">
+              <template #header>
+                <div class="flex items-center gap-1.5 min-w-0 flex-1 pr-1">
+                  <span class="i-lucide-layers w-3.5 h-3.5 shrink-0 opacity-70" />
+                  <span class="text-[11px] font-semibold text-slate-500 dark:text-neutral-400 uppercase tracking-widest">
+                    技术栈
+                  </span>
+                  <span
+                    v-if="filters.selectedTechStacks.length"
+                    class="text-[10px] font-medium text-sky-600 dark:text-sky-400 normal-case tracking-normal tabular-nums"
+                  >
+                    {{ filters.selectedTechStacks.length }} 项
+                  </span>
+                </div>
+              </template>
+              <p class="text-[10px] text-slate-400 dark:text-neutral-500 mb-2 leading-relaxed">
+                多选为「且」：笔记的 tech_stack 须同时包含所选项（大小写不敏感）。
+              </p>
+              <div v-if="sidebar.tagsLoading" class="flex items-center justify-center py-3">
+                <n-spin size="small" />
+              </div>
+              <div v-else-if="sidebar.techStacks.length" class="flex flex-wrap gap-1.5">
+                <span
+                  v-for="row in sidebar.techStacks"
+                  :key="row.name"
+                  :class="[
+                    'px-2.5 py-1 rounded-full text-xs cursor-pointer transition-colors',
+                    filters.selectedTechStacks.includes(row.name)
+                      ? 'bg-sky-50 dark:bg-sky-950/40 text-sky-700 dark:text-sky-300 border border-sky-200 dark:border-sky-800/60 font-medium'
+                      : 'text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-neutral-700 hover:bg-slate-50 dark:hover:bg-neutral-800',
+                  ]"
+                  @click="toggleTechStack(row.name)"
+                >
+                  {{ row.name }} <span class="opacity-50 ml-0.5 text-[10px]">{{ row.count }}</span>
+                </span>
+              </div>
+              <p v-else class="text-[11px] text-slate-400 dark:text-neutral-500 py-2 leading-relaxed">
+                暂无。需会话经提炼写入 tech_stack；排查终端
+                <code class="text-[10px] opacity-90">normalize: tech_stack</code>
+                与
+                <code class="text-[10px] opacity-90">创建卡片: … tech_stack列</code>
+              </p>
+            </n-collapse-item>
+          </n-collapse>
         </div>
       </template>
 
@@ -640,5 +728,26 @@ watch(() => ui.activeTab, (tab) => {
   border-radius: 3px;
   display: inline-block;
   flex-shrink: 0;
+}
+
+/* 知识库折叠：面板内容随侧栏整体滚动，禁止 Naive 内部再出现滚动条 */
+.library-filters-collapse :deep(.n-collapse-item__content-wrapper) {
+  overflow: visible !important;
+}
+.library-filters-collapse :deep(.n-collapse-item__content-inner) {
+  overflow: visible !important;
+  max-height: none !important;
+  padding-top: 0;
+  padding-bottom: 10px;
+}
+.library-filters-collapse :deep(.n-collapse-item__header) {
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+.library-filters-collapse :deep(.n-collapse-item:not(:first-child)) {
+  border-top: 1px solid rgb(241 245 249);
+}
+.dark .library-filters-collapse :deep(.n-collapse-item:not(:first-child)) {
+  border-top-color: rgb(38 38 38);
 }
 </style>
