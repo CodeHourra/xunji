@@ -10,8 +10,6 @@ import {
   NSpin,
   NEmpty,
   NTag,
-  NRadioGroup,
-  NRadioButton,
   NCheckbox,
   NButton,
   useMessage,
@@ -40,7 +38,7 @@ const loading = ref(false)
 const selectedIds = ref(new Set<string>())
 const exportBusy = ref(false)
 
-const viewMode = ref<ViewMode>('list')
+const viewMode = ref<ViewMode>('card')
 
 const selectedCount = computed(() => selectedIds.value.size)
 
@@ -164,32 +162,29 @@ function onExportAll() {
 </script>
 
 <template>
-  <!--
-    布局：整列 flex + min-h-0，保证主内容区占满剩余高度且内部滚动；
-    分页 shrink-0 固定在可视区域底部（相对 main 视口）。
-  -->
   <div class="flex flex-col h-full min-h-0 max-w-5xl mx-auto w-full px-5 pt-5">
-    <!-- 顶栏：标题 + 视图切换 -->
-    <header class="shrink-0 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between mb-3">
+    <!-- 顶栏：标题 + 工具栏 -->
+    <header class="shrink-0 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
       <div>
-        <h1 class="text-base font-semibold text-neutral-900 dark:text-neutral-100 tracking-tight">
+        <h1 class="text-base font-semibold text-slate-800 dark:text-slate-100 tracking-tight">
           知识库
         </h1>
-        <p class="text-[11px] text-emerald-700/70 dark:text-emerald-400/80 mt-0.5">
-          共 {{ total }} 条 · 列表 / 卡片切换
+        <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+          共 {{ total }} 条记录 · 当前{{ viewMode === 'card' ? '卡片' : '列表' }}视图
         </p>
       </div>
       <div class="flex flex-wrap items-center gap-2 justify-end">
         <div class="flex flex-wrap gap-1.5 items-center">
-          <span v-if="selectedCount" class="text-[11px] text-neutral-500">已选 {{ selectedCount }} 条</span>
-          <n-button size="tiny" secondary :disabled="!items.length" @click="selectAllOnPage">
+          <span v-if="selectedCount" class="text-[11px] text-slate-500 dark:text-slate-400">已选 {{ selectedCount }} 条</span>
+          <n-button size="small" secondary :disabled="!items.length" @click="selectAllOnPage">
             全选当页
           </n-button>
-          <n-button size="tiny" quaternary :disabled="!selectedCount" @click="clearSelection">
+          <n-button size="small" secondary :disabled="!selectedCount" @click="clearSelection">
             清除选择
           </n-button>
           <n-button
             size="small"
+            secondary
             :loading="exportBusy"
             :disabled="exportBusy || !selectedCount"
             @click="onExportSelected"
@@ -212,156 +207,206 @@ function onExportAll() {
             </span>
           </n-button>
         </div>
-        <n-radio-group v-model:value="viewMode" size="small" class="shrink-0">
-          <n-radio-button value="list">
-            <span class="inline-flex items-center gap-1.5">
-              <span class="i-lucide-list w-3.5 h-3.5" />
-              列表
-            </span>
-          </n-radio-button>
-          <n-radio-button value="card">
-            <span class="inline-flex items-center gap-1.5">
-              <span class="i-lucide-layout-grid w-3.5 h-3.5" />
-              卡片
-            </span>
-          </n-radio-button>
-        </n-radio-group>
+        <!-- 视图切换：与顶栏/会话分段条一致，segment-pill-btn 避免 WebView 默认灰底 -->
+        <div class="bg-slate-100/80 dark:bg-neutral-900/55 p-1 rounded-lg inline-flex shrink-0">
+          <button
+            type="button"
+            class="segment-pill-btn"
+            :class="[
+              'flex items-center gap-1.5 px-3 py-1 rounded-md text-sm font-medium transition-colors cursor-pointer border-0 outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/35',
+              viewMode === 'list'
+                ? 'bg-white dark:bg-neutral-800 text-slate-800 dark:text-slate-100 ring-1 ring-slate-200/90 dark:ring-white/10'
+                : 'bg-transparent text-slate-500 hover:text-slate-800 dark:text-neutral-500 dark:hover:text-neutral-200',
+            ]"
+            @click="viewMode = 'list'"
+          >
+            <span class="i-lucide-list w-3.5 h-3.5" />
+            列表
+          </button>
+          <button
+            type="button"
+            class="segment-pill-btn"
+            :class="[
+              'flex items-center gap-1.5 px-3 py-1 rounded-md text-sm font-medium transition-colors cursor-pointer border-0 outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/35',
+              viewMode === 'card'
+                ? 'bg-white dark:bg-neutral-800 text-slate-800 dark:text-slate-100 ring-1 ring-slate-200/90 dark:ring-white/10'
+                : 'bg-transparent text-slate-500 hover:text-slate-800 dark:text-neutral-500 dark:hover:text-neutral-200',
+            ]"
+            @click="viewMode = 'card'"
+          >
+            <span class="i-lucide-layout-grid w-3.5 h-3.5" />
+            卡片
+          </button>
+        </div>
       </div>
     </header>
 
-    <!-- 内容区：清新底色 + 内部条目统一悬浮阴影（无 hover 抬升） -->
-    <div
-      class="flex-1 min-h-0 flex flex-col overflow-hidden rounded-xl border border-emerald-200/40 dark:border-emerald-900/35 bg-gradient-to-br from-emerald-50/90 via-teal-50/50 to-cyan-50/40 dark:from-emerald-950/25 dark:via-neutral-950 dark:to-slate-950/90 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.6)] dark:shadow-none"
-    >
-      <div class="flex-1 min-h-0 overflow-y-auto p-3 sm:p-4">
-        <div v-if="loading" class="flex items-center justify-center py-24">
-          <n-spin size="medium" />
-        </div>
+    <!-- 内容区 -->
+    <div class="flex-1 min-h-0 overflow-y-auto pb-32">
+      <div v-if="loading" class="flex items-center justify-center py-24">
+        <n-spin size="medium" />
+      </div>
 
-        <n-empty v-else-if="!items.length" description="暂无知识卡片" class="py-16" />
+      <n-empty v-else-if="!items.length" description="暂无知识卡片" class="py-16" />
 
-        <!-- 列表视图：紧凑行高 + 统一悬浮块（静态阴影，hover 仅微调描边） -->
-        <div v-else-if="viewMode === 'list'" class="space-y-2">
-          <button
-            v-for="c in items"
-            :key="c.id"
-            type="button"
-            class="group w-full text-left flex gap-0 rounded-lg border border-white/70 dark:border-emerald-900/50 bg-white/85 dark:bg-neutral-900/75 shadow-[0_2px_14px_-2px_rgba(16,185,129,0.18)] dark:shadow-[0_2px_16px_-4px_rgba(0,0,0,0.45)] backdrop-blur-sm hover:border-emerald-300/55 dark:hover:border-emerald-700/45 transition-[border-color] duration-150 overflow-hidden focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/40"
-            @click="open(c)"
-          >
-            <div
-              class="w-1 shrink-0 bg-gradient-to-b from-emerald-400 to-teal-500"
-              aria-hidden="true"
-            />
-            <div class="shrink-0 flex items-center pl-2 py-2" @click.stop>
-              <n-checkbox
-                :checked="selectedIds.has(c.id)"
-                @update:checked="(v: boolean) => toggleSelect(c.id, v)"
-              />
-            </div>
-            <div class="flex-1 min-w-0 py-2 pl-1 pr-3">
-              <div class="flex items-center justify-between gap-2">
-                <h2 class="text-[13px] font-semibold text-neutral-800 dark:text-neutral-100 line-clamp-1 leading-tight">
-                  {{ c.title }}
-                </h2>
-                <time
-                  class="text-[10px] text-emerald-700/65 dark:text-emerald-500/80 font-mono tabular-nums shrink-0"
-                  :datetime="c.updatedAt"
-                >
-                  {{ formatTime(c.updatedAt) }}
-                </time>
-              </div>
-              <div class="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-1">
-                <n-tag v-if="c.type" size="tiny" :bordered="false" type="success" class="!text-[10px] !px-1.5 !py-0">
+      <!-- 卡片视图 -->
+      <div
+        v-else-if="viewMode === 'card'"
+        class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5"
+      >
+        <div
+          v-for="c in items"
+          :key="c.id"
+          class="group relative rounded-2xl border bg-white dark:bg-neutral-900 transition-all duration-300 cursor-pointer overflow-hidden flex flex-col"
+          :class="[
+            selectedIds.has(c.id)
+              ? 'ring-2 ring-emerald-500 border-transparent bg-emerald-50/20 dark:bg-emerald-950/20'
+              : 'border-slate-200/80 dark:border-neutral-700/60 hover:border-emerald-300 dark:hover:border-emerald-700',
+          ]"
+          @click="open(c)"
+        >
+          <!-- 卡片主体 -->
+          <div class="p-5 flex-1 flex flex-col gap-3">
+            <div class="flex items-start justify-between">
+              <div class="flex items-center gap-2 flex-wrap">
+                <n-tag v-if="c.type" size="small" :bordered="false" type="success" class="font-medium rounded">
                   {{ getCardTypeLabel(c.type) }}
                 </n-tag>
                 <n-tag
                   v-if="c.value"
-                  size="tiny"
+                  size="small"
                   :bordered="false"
                   :type="c.value === 'high' ? 'success' : c.value === 'medium' ? 'warning' : 'default'"
-                  class="!text-[10px] !px-1.5 !py-0"
+                  class="rounded"
                 >
-                  {{ c.value }}
+                  {{ c.value === 'high' ? '高价值' : c.value === 'medium' ? '中价值' : c.value }}
                 </n-tag>
-                <span
-                  v-if="c.projectName"
-                  class="text-[10px] text-neutral-600 dark:text-neutral-400 truncate max-w-[10rem]"
-                >
-                  {{ c.projectName }}
-                </span>
-                <span v-if="c.sourceName" class="text-[10px] text-neutral-400 dark:text-neutral-500">
-                  · {{ c.sourceName }}
-                </span>
               </div>
-              <p class="text-[11px] text-neutral-600/90 dark:text-neutral-400/95 line-clamp-2 mt-1.5 leading-snug">
+              <div class="shrink-0" @click.stop>
+                <n-checkbox
+                  :checked="selectedIds.has(c.id)"
+                  size="small"
+                  @update:checked="(v: boolean) => toggleSelect(c.id, v)"
+                />
+              </div>
+            </div>
+
+            <div class="flex-1">
+              <h3 class="text-base font-semibold text-slate-800 dark:text-slate-100 leading-snug group-hover:text-emerald-700 dark:group-hover:text-emerald-400 transition-colors">
+                {{ c.title }}
+              </h3>
+              <p class="text-[13px] text-slate-500 dark:text-slate-400 line-clamp-3 mt-2 leading-relaxed">
                 {{ c.summary || '暂无摘要' }}
               </p>
             </div>
-          </button>
-        </div>
+          </div>
 
-        <!-- 卡片视图：更高密度网格，与列表同一套悬浮与配色 -->
-        <div
-          v-else
-          class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5"
-        >
-          <button
-            v-for="c in items"
-            :key="c.id"
-            type="button"
-            class="group flex flex-col text-left rounded-xl border border-white/70 dark:border-emerald-900/50 bg-white/85 dark:bg-neutral-900/75 min-h-[132px] p-3 shadow-[0_2px_14px_-2px_rgba(16,185,129,0.18)] dark:shadow-[0_2px_16px_-4px_rgba(0,0,0,0.45)] backdrop-blur-sm hover:border-emerald-300/55 dark:hover:border-emerald-700/45 transition-[border-color] duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/40"
-            @click="open(c)"
-          >
-            <div class="flex items-start justify-between gap-2">
-              <div class="flex items-start gap-2 min-w-0 flex-1">
-                <div class="shrink-0 pt-0.5" @click.stop>
-                  <n-checkbox
-                    :checked="selectedIds.has(c.id)"
-                    @update:checked="(v: boolean) => toggleSelect(c.id, v)"
-                  />
-                </div>
-                <div class="flex flex-wrap gap-1 min-w-0">
-                  <n-tag v-if="c.type" size="tiny" :bordered="false" type="success" class="!text-[10px] !px-1.5 !py-0">
-                    {{ getCardTypeLabel(c.type) }}
-                  </n-tag>
-                  <n-tag
-                    v-if="c.value"
-                    size="tiny"
-                    :bordered="false"
-                    :type="c.value === 'high' ? 'success' : c.value === 'medium' ? 'warning' : 'default'"
-                    class="!text-[10px] !px-1.5 !py-0"
-                  >
-                    {{ c.value }}
-                  </n-tag>
-                </div>
-              </div>
-              <time
-                class="text-[10px] text-emerald-700/65 dark:text-emerald-500/80 font-mono tabular-nums shrink-0"
-                :datetime="c.updatedAt"
-              >
+          <!-- 卡片底部 -->
+          <div class="px-5 py-3.5 bg-slate-50/50 dark:bg-neutral-800/30 border-t border-slate-100 dark:border-neutral-800 flex flex-col gap-2.5">
+            <div class="flex items-center justify-between text-[12px]">
+              <span class="flex items-center gap-1.5 font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-neutral-800 px-2 py-0.5 rounded border border-slate-200 dark:border-neutral-700">
+                <span class="i-lucide-folder w-3.5 h-3.5 text-slate-400" />
+                {{ c.projectName || '—' }}
+              </span>
+              <span v-if="c.sourceName" class="flex items-center gap-1.5 text-slate-400 dark:text-slate-500 font-mono bg-white dark:bg-neutral-800 px-1.5 py-0.5 rounded border border-slate-200 dark:border-neutral-700">
+                <span class="i-lucide-terminal w-3 h-3" />
+                {{ c.sourceName }}
+              </span>
+            </div>
+            <div class="flex items-center justify-between text-[11px] text-slate-400 dark:text-slate-500 mt-1">
+              <span class="flex items-center gap-1.5">
+                <span class="i-lucide-clock w-3 h-3" />
                 {{ formatTime(c.updatedAt) }}
-              </time>
+              </span>
+              <span class="opacity-0 group-hover:opacity-100 transition-opacity font-medium text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                阅读笔记 <span class="i-lucide-arrow-right w-3 h-3" />
+              </span>
             </div>
-            <h2 class="text-[13px] font-semibold text-neutral-800 dark:text-neutral-100 line-clamp-2 mt-1.5 leading-snug">
-              {{ c.title }}
-            </h2>
-            <p class="text-[11px] text-neutral-600/90 dark:text-neutral-400/95 line-clamp-2 mt-1 flex-1 leading-snug">
-              {{ c.summary || '暂无摘要' }}
-            </p>
-            <div class="mt-1.5 pt-1.5 border-t border-emerald-100/80 dark:border-emerald-900/40 flex items-center justify-between gap-2 text-[10px] text-neutral-500 dark:text-neutral-400">
-              <span class="truncate">{{ c.projectName || '—' }}</span>
-              <span class="i-lucide-chevron-right w-3 h-3 text-emerald-400/80 shrink-0" />
+          </div>
+        </div>
+      </div>
+
+      <!-- 列表视图 -->
+      <div v-else class="space-y-4">
+        <div
+          v-for="c in items"
+          :key="'list-'+c.id"
+          class="group relative rounded-xl border bg-white dark:bg-neutral-900 transition-all duration-300 cursor-pointer overflow-hidden flex items-center"
+          :class="[
+            selectedIds.has(c.id)
+              ? 'ring-2 ring-emerald-500 border-transparent bg-emerald-50/20 dark:bg-emerald-950/20'
+              : 'border-slate-200/80 dark:border-neutral-700/60 hover:border-emerald-300 dark:hover:border-emerald-700',
+          ]"
+          @click="open(c)"
+        >
+          <!-- Checkbox -->
+          <div class="pl-4 shrink-0" @click.stop>
+            <n-checkbox
+              :checked="selectedIds.has(c.id)"
+              size="small"
+              @update:checked="(v: boolean) => toggleSelect(c.id, v)"
+            />
+          </div>
+
+          <!-- 列表项内容 -->
+          <div class="flex-1 p-4 flex items-center gap-4">
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center gap-2 mb-1">
+                <n-tag v-if="c.type" size="small" :bordered="false" type="success" class="font-medium rounded !text-[11px]">
+                  {{ getCardTypeLabel(c.type) }}
+                </n-tag>
+                <n-tag
+                  v-if="c.value"
+                  size="small"
+                  :bordered="false"
+                  :type="c.value === 'high' ? 'success' : c.value === 'medium' ? 'warning' : 'default'"
+                  class="rounded !text-[11px]"
+                >
+                  {{ c.value === 'high' ? '高价值' : c.value === 'medium' ? '中价值' : c.value }}
+                </n-tag>
+                <h3 class="text-[15px] font-semibold text-slate-800 dark:text-slate-100 truncate group-hover:text-emerald-700 dark:group-hover:text-emerald-400 transition-colors">
+                  {{ c.title }}
+                </h3>
+              </div>
+              <p class="text-[13px] text-slate-500 dark:text-slate-400 truncate">
+                {{ c.summary || '暂无摘要' }}
+              </p>
             </div>
-          </button>
+
+            <!-- 元数据 -->
+            <div class="flex items-center gap-4 shrink-0 text-[12px] text-slate-400 dark:text-slate-500">
+              <span class="flex items-center gap-1.5 w-24">
+                <span class="i-lucide-folder w-3.5 h-3.5" />
+                <span class="truncate">{{ c.projectName || '—' }}</span>
+              </span>
+              <span v-if="c.sourceName" class="flex items-center gap-1.5 w-24">
+                <span class="i-lucide-terminal w-3 h-3" />
+                <span class="truncate">{{ c.sourceName }}</span>
+              </span>
+              <span class="flex items-center gap-1.5 w-32">
+                <span class="i-lucide-clock w-3.5 h-3.5" />
+                {{ formatTime(c.updatedAt) }}
+              </span>
+            </div>
+
+            <!-- 操作按钮 -->
+            <div class="opacity-0 group-hover:opacity-100 transition-opacity duration-200 shrink-0 w-24 flex justify-end">
+              <n-button secondary size="small" class="rounded-lg">
+                <template #icon>
+                  <span class="i-lucide-book-open w-4 h-4" />
+                </template>
+                阅读笔记
+              </n-button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
 
-    <!-- 分页：固定在内容区下方、不随列表滚动 -->
+    <!-- 分页 -->
     <footer
       v-if="total > 0"
-      class="shrink-0 py-2 mt-1.5 border-t border-emerald-100/70 dark:border-emerald-900/40 bg-emerald-50/40 dark:bg-neutral-950/90 backdrop-blur-sm"
+      class="shrink-0 py-3 border-t border-slate-200 dark:border-neutral-800"
     >
       <Pagination
         :page="page"

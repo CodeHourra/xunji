@@ -221,6 +221,7 @@ env_logger::Builder::from_env(
 
 ## 相关文档
 
+- [桌面应用-分段控件-WebView原生button默认样式.md](./桌面应用-分段控件-WebView原生button默认样式.md) — 分段条原生 `<button>` 在 WebView 下的灰底与暗色层次问题
 - [troubleshooting-unocss-icons-missing.md](./troubleshooting-unocss-icons-missing.md) — 构建后图标全丢、Node `styleText`、Bun `--bun`
 - [桌面应用-提炼-CLI-路径与环境变量.md](./桌面应用-提炼-CLI-路径与环境变量.md) — 桌面进程 PATH、CLI 绝对路径
 - [monorepo-混用包管理器.md](./monorepo-混用包管理器.md) — 锁文件与依赖一致性

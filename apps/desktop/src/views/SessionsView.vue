@@ -214,8 +214,8 @@ function openSearchHit(cardId: string, sessionId: string) {
 </script>
 
 <template>
-  <div class="flex flex-col h-full px-5 pt-5 max-w-5xl mx-auto w-full">
-    <SessionToolbar />
+  <div class="flex flex-col h-full px-5 pt-5 mx-auto w-full relative">
+    <SessionToolbar :pending-count="unanalyzedCount" />
 
     <!-- Toast -->
     <Transition
@@ -249,7 +249,7 @@ function openSearchHit(cardId: string, sessionId: string) {
 
     <!-- 搜索结果（FTS 知识卡片） -->
     <div v-if="search.query.trim()" class="flex-1 min-h-0 overflow-y-auto space-y-3 pb-4">
-      <div class="text-xs text-neutral-500 font-medium">搜索结果（{{ search.results.length }}）</div>
+      <div class="text-xs text-slate-500 dark:text-slate-400 font-medium">搜索结果（{{ search.results.length }}）</div>
       <div v-if="search.searching && !search.results.length" class="flex justify-center py-16">
         <n-spin size="medium" />
       </div>
@@ -260,15 +260,15 @@ function openSearchHit(cardId: string, sessionId: string) {
         <template #default>
           <div class="text-center space-y-1 px-4">
             <template v-if="libraryCardTotal === 0">
-              <p class="text-sm text-neutral-600 dark:text-neutral-300">知识库中暂无笔记</p>
-              <p class="text-xs text-neutral-400">请先同步对话并完成提炼，再使用全文搜索。</p>
+              <p class="text-sm text-slate-600 dark:text-slate-300">知识库中暂无笔记</p>
+              <p class="text-xs text-slate-400">请先同步对话并完成提炼，再使用全文搜索。</p>
             </template>
             <template v-else-if="libraryCardTotal != null && libraryCardTotal > 0">
-              <p class="text-sm text-neutral-600 dark:text-neutral-300">未找到包含该关键词的笔记</p>
-              <p class="text-xs text-neutral-400">试试更短的关键词、同义词，或检查拼写。</p>
+              <p class="text-sm text-slate-600 dark:text-slate-300">未找到包含该关键词的笔记</p>
+              <p class="text-xs text-slate-400">试试更短的关键词、同义词，或检查拼写。</p>
             </template>
             <template v-else>
-              <p class="text-sm text-neutral-600 dark:text-neutral-300">未找到匹配内容</p>
+              <p class="text-sm text-slate-600 dark:text-slate-300">未找到匹配内容</p>
             </template>
           </div>
         </template>
@@ -276,15 +276,15 @@ function openSearchHit(cardId: string, sessionId: string) {
       <div
         v-for="c in search.results"
         :key="c.id"
-        class="rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-3 cursor-pointer hover:border-brand-300 dark:hover:border-brand-800 transition-all group"
+        class="rounded-lg border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-3 cursor-pointer hover:border-emerald-300 dark:hover:border-emerald-800 transition-all group"
         @click="openSearchHit(c.id, c.sessionId)"
       >
         <div class="flex items-center justify-between gap-3">
           <div class="min-w-0">
-            <div class="text-sm font-medium text-neutral-800 dark:text-neutral-200 group-hover:text-brand-600 dark:group-hover:text-brand-400 truncate">{{ c.title }}</div>
-            <div class="text-xs text-neutral-500 line-clamp-1 mt-0.5">{{ c.summary }}</div>
+            <div class="text-sm font-medium text-slate-800 dark:text-slate-200 group-hover:text-emerald-600 dark:group-hover:text-emerald-400 truncate">{{ c.title }}</div>
+            <div class="text-xs text-slate-500 line-clamp-1 mt-0.5">{{ c.summary }}</div>
           </div>
-          <span class="i-lucide-arrow-right w-4 h-4 text-neutral-400 group-hover:text-brand-500 shrink-0" />
+          <span class="i-lucide-arrow-right w-4 h-4 text-slate-400 group-hover:text-emerald-500 shrink-0" />
         </div>
       </div>
     </div>
@@ -309,80 +309,41 @@ function openSearchHit(cardId: string, sessionId: string) {
       </div>
 
       <template v-else>
-        <!-- 批量操作工具栏 -->
-        <div class="flex items-center justify-between mb-2 min-h-8">
-          <div class="flex items-center gap-3">
-            <template v-if="batchMode">
-              <n-checkbox
-                :checked="allSelected"
-                :indeterminate="indeterminate"
-                @update:checked="toggleSelectAll"
-              >
-                <span class="text-xs text-neutral-600 dark:text-neutral-400">全选</span>
-              </n-checkbox>
-              <span v-if="selectedIds.size > 0" class="text-xs text-brand-600 dark:text-brand-400 font-medium">
-                已选 {{ selectedIds.size }} 条
-              </span>
-            </template>
-          </div>
-
-          <div class="flex items-center gap-2">
-            <template v-if="!batchMode">
-              <n-button
-                v-if="unanalyzedCount > 0"
-                size="tiny"
-                :disabled="batchRunning"
-                @click="toggleBatchMode"
-              >
-                <span class="inline-flex items-center gap-1">
-                  <span class="i-lucide-layers w-3 h-3" />
-                  批量分析（{{ unanalyzedCount }}）
-                </span>
-              </n-button>
-            </template>
-
-            <template v-else>
-              <n-button
-                size="tiny"
-                type="primary"
-                :loading="batchRunning"
-                :disabled="selectedIds.size === 0 || batchRunning"
-                @click="startBatchAnalyze"
-              >
-                <span class="inline-flex items-center gap-1">
-                  <span v-if="!batchRunning" class="i-lucide-sparkles w-3 h-3" />
-                  {{ batchRunning ? `队列处理中 ${batchFinished}/${batchExpected}…` : `开始分析（${selectedIds.size}）` }}
-                </span>
-              </n-button>
-              <n-button size="tiny" :disabled="batchRunning" @click="toggleBatchMode">
-                取消
-              </n-button>
-            </template>
-          </div>
+        <!-- 列表标题行 -->
+        <div class="flex items-center justify-between mb-3">
+          <h2 class="text-base font-semibold text-slate-800 dark:text-slate-100">会话列表</h2>
+          <n-button
+            v-if="unanalyzedCount > 0 && !batchMode"
+            size="small"
+            secondary
+            :disabled="batchRunning"
+            @click="toggleBatchMode"
+          >
+            <span class="inline-flex items-center gap-1.5">
+              <span class="i-lucide-layers w-3.5 h-3.5" />
+              批量操作
+            </span>
+          </n-button>
         </div>
 
-        <p v-if="batchRunning" class="text-xs text-neutral-500 mb-2">
+        <p v-if="batchRunning" class="text-xs text-slate-500 dark:text-slate-400 mb-2">
           已加入全局分析队列，进度见右下角面板；请勿关闭应用。
         </p>
 
-        <!-- 与会话列表区：整体悬浮块 + 渐变底，与 KnowledgeView 内容区同一套层次逻辑；暗色同样保留外阴影表深度 -->
-        <div
-          class="flex-1 min-h-0 flex flex-col overflow-hidden rounded-xl border border-emerald-200/40 dark:border-emerald-900/35 bg-gradient-to-br from-emerald-50/90 via-teal-50/50 to-cyan-50/40 dark:from-emerald-950/25 dark:via-neutral-950 dark:to-slate-950/90 shadow-[0_2px_14px_-2px_rgba(16,185,129,0.12)] dark:shadow-[0_2px_16px_-4px_rgba(0,0,0,0.4)]"
-        >
-          <div class="flex-1 min-h-0 overflow-y-auto p-3 sm:p-4 space-y-2.5 pb-3">
-            <SessionCard
-              v-for="s in sessions.items"
-              :key="s.id"
-              :session="s"
-              :selectable="batchMode"
-              :selected="selectedIds.has(s.id)"
-              @analyze="onAnalyze"
-              @update:selected="onSelectionChange"
-            />
-          </div>
+        <!-- 会话卡片列表 -->
+        <div class="flex-1 min-h-0 overflow-y-auto space-y-4 pb-32">
+          <SessionCard
+            v-for="s in sessions.items"
+            :key="s.id"
+            :session="s"
+            :selectable="batchMode"
+            :selected="selectedIds.has(s.id)"
+            @analyze="onAnalyze"
+            @update:selected="onSelectionChange"
+          />
         </div>
 
-        <div class="shrink-0 py-3 border-t border-neutral-200 dark:border-neutral-800">
+        <div class="shrink-0 py-3 border-t border-slate-200 dark:border-neutral-800">
           <Pagination
             :page="sessions.page"
             :page-size="sessions.pageSize"
@@ -391,7 +352,83 @@ function openSearchHit(cardId: string, sessionId: string) {
             @update:page-size="sessions.setPageSize"
           />
         </div>
+
+        <!-- 批量操作浮条 (Glass Bar) -->
+        <Transition
+          enter-active-class="transition ease-out duration-300 transform"
+          enter-from-class="translate-y-24 opacity-0"
+          enter-to-class="translate-y-0 opacity-100"
+          leave-active-class="transition ease-in duration-200 transform"
+          leave-from-class="translate-y-0 opacity-100"
+          leave-to-class="translate-y-24 opacity-0"
+        >
+          <div
+            v-show="batchMode"
+            class="absolute bottom-8 left-0 right-0 flex justify-center z-50 pointer-events-none"
+          >
+            <div class="glass-bar rounded-full p-2 pl-5 flex items-center gap-5 pointer-events-auto shadow-xl">
+              <!-- 选择状态 -->
+              <div class="flex items-center gap-3 border-r border-slate-200/80 dark:border-neutral-600/80 pr-4">
+                <n-checkbox
+                  :checked="allSelected"
+                  :indeterminate="indeterminate"
+                  @update:checked="toggleSelectAll"
+                />
+                <span class="text-sm font-semibold text-slate-700 dark:text-slate-200 w-[60px]">
+                  已选 <span class="text-emerald-600 dark:text-emerald-400">{{ selectedIds.size }}</span> 项
+                </span>
+              </div>
+              <!-- 操作按钮 -->
+              <div class="flex items-center gap-2">
+                <n-button
+                  type="primary"
+                  round
+                  size="large"
+                  class="px-6"
+                  :loading="batchRunning"
+                  :disabled="selectedIds.size === 0 || batchRunning"
+                  @click="startBatchAnalyze"
+                >
+                  <template #icon>
+                    <span v-if="!batchRunning" class="i-lucide-sparkles w-4 h-4" />
+                  </template>
+                  {{ batchRunning ? `处理中 ${batchFinished}/${batchExpected}…` : '开始分析' }}
+                </n-button>
+                <n-button
+                  round
+                  size="large"
+                  secondary
+                  class="px-6"
+                  :disabled="batchRunning"
+                  @click="toggleBatchMode"
+                >
+                  取消
+                </n-button>
+              </div>
+            </div>
+          </div>
+        </Transition>
       </template>
     </template>
   </div>
 </template>
+
+<style scoped>
+.glass-bar {
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(226, 232, 240, 0.8);
+  box-shadow:
+    0 20px 25px -5px rgba(5, 150, 105, 0.1),
+    0 10px 10px -5px rgba(5, 150, 105, 0.05),
+    inset 0 1px 2px 0 rgba(255, 255, 255, 0.1);
+}
+.dark .glass-bar {
+  background: rgba(23, 23, 23, 0.85);
+  border-color: rgba(64, 64, 64, 0.8);
+  box-shadow:
+    0 20px 25px -5px rgba(0, 0, 0, 0.3),
+    0 10px 10px -5px rgba(0, 0, 0, 0.2);
+}
+</style>

@@ -1,8 +1,13 @@
 <script setup lang="ts">
-import { NInput, NButton } from 'naive-ui'
+import { NInput, NButton, NTooltip } from 'naive-ui'
 import { useSessionsStore } from '../stores/sessions'
 import { useSearchStore } from '../stores/search'
 import { useFiltersStore } from '../stores/filters'
+
+defineProps<{
+  /** 待分析角标（预留，与列表统计联动时可展示） */
+  pendingCount?: number
+}>()
 
 const sessions = useSessionsStore()
 const search = useSearchStore()
@@ -14,118 +19,118 @@ async function refresh() {
 }
 
 /**
- * 切换已分析/全部过滤。
+ * 切换状态过滤。
  * 点击已选中的按钮 → 恢复全部；点击未选中的按钮 → 激活该过滤
  */
-function toggleStatus(val: 'analyzed' | 'pending') {
+function setStatusFilter(val: '' | 'analyzed' | 'pending') {
   filters.statusFilter = filters.statusFilter === val ? '' : val
   sessions.page = 1
   void sessions.loadPage()
 }
+
+/** 待分析数量（从当前结果页取得近似值） */
 </script>
 
 <template>
-  <div class="flex flex-col gap-3 mb-4 shrink-0">
-    <!-- 搜索行：FTS 搜的是知识库卡片，非会话标题（v0.1.1 文案明确语义） -->
-    <div class="flex flex-col gap-1">
-      <div class="flex items-center gap-2">
-        <n-input
-          v-model:value="search.query"
-          placeholder="搜索知识笔记（标题 / 摘要 / 正文全文）"
-          clearable
-          size="medium"
-          class="flex-1"
-          @clear="refresh"
-        >
+  <div class="flex flex-col gap-4 mb-8 shrink-0">
+    <!-- 搜索行 -->
+    <div class="flex items-center gap-3">
+      <n-input
+        v-model:value="search.query"
+        placeholder="搜索知识笔记（标题 / 摘要 / 正文全文）..."
+        clearable
+        size="large"
+        class="flex-1 rounded-lg"
+        @clear="refresh"
+      >
         <template #prefix>
-          <span class="i-lucide-search w-4 h-4 opacity-40" />
+          <span class="i-lucide-search w-4 h-4 text-slate-400 mr-1" />
         </template>
         <template #suffix>
-          <span v-if="search.searching" class="i-lucide-loader-2 w-3.5 h-3.5 animate-spin opacity-40" />
+          <span v-if="search.searching" class="i-lucide-loader-2 w-3.5 h-3.5 animate-spin text-slate-400" />
         </template>
       </n-input>
 
-      <!-- 刷新 -->
-      <n-button size="medium" @click="refresh">
-        <span class="inline-flex items-center gap-1.5">
-          <span class="i-lucide-rotate-ccw w-3.5 h-3.5" />
-          刷新
-        </span>
+      <n-button size="large" secondary class="rounded-lg px-4" @click="refresh">
+        <template #icon>
+          <span class="i-lucide-rotate-ccw w-4 h-4 text-slate-500" />
+        </template>
+        <span class="text-slate-600 dark:text-slate-300">刷新</span>
       </n-button>
-
-      <!-- 已分析过滤按钮 -->
-      <n-button
-        size="medium"
-        :type="filters.statusFilter === 'analyzed' ? 'primary' : 'default'"
-        @click="toggleStatus('analyzed')"
-      >
-        <span class="inline-flex items-center gap-1.5">
-          <span
-            :class="filters.statusFilter === 'analyzed'
-              ? 'i-lucide-check-circle w-3.5 h-3.5'
-              : 'i-lucide-circle w-3.5 h-3.5 opacity-50'"
-          />
-          已分析
-        </span>
-      </n-button>
-
-      <!-- 待分析过滤按钮 -->
-      <n-button
-        size="medium"
-        :type="filters.statusFilter === 'pending' ? 'warning' : 'default'"
-        @click="toggleStatus('pending')"
-      >
-        <span class="inline-flex items-center gap-1.5">
-          <span
-            :class="filters.statusFilter === 'pending'
-              ? 'i-lucide-clock w-3.5 h-3.5'
-              : 'i-lucide-clock w-3.5 h-3.5 opacity-50'"
-          />
-          待分析
-        </span>
-      </n-button>
-      </div>
-      <p class="text-[11px] text-neutral-400 dark:text-neutral-500 leading-snug pl-0.5">
-        搜索对象为<strong class="text-neutral-500 dark:text-neutral-400">已入库的知识卡片</strong>（FTS），不包含未提炼的会话标题。
-      </p>
     </div>
 
-    <!-- 状态行 -->
-    <div class="flex items-center justify-between text-xs text-neutral-500 dark:text-neutral-400">
-      <div class="flex items-center gap-2">
-        <span class="flex items-center gap-1.5">
-          <span class="i-lucide-list w-3.5 h-3.5" />
-          共 <strong class="text-neutral-700 dark:text-neutral-200 mx-0.5">{{ sessions.total }}</strong> 条
-          <template v-if="filters.statusFilter === 'analyzed'">
-            <span class="text-emerald-500 font-medium">已分析</span>
-          </template>
-          <template v-else-if="filters.statusFilter === 'pending'">
-            <span class="text-amber-500 font-medium">待分析</span>
-          </template>
-          <template v-else>
-            会话
-          </template>
-        </span>
-
-        <!-- 当前过滤激活时显示清除链接 -->
+    <!-- 过滤 & 信息行 -->
+    <div class="flex items-center justify-between">
+      <!-- 分段选择器：与顶栏 Tab 同一套扁平语义，segment-pill-btn 避免系统按钮灰底 -->
+      <div class="bg-slate-100/80 dark:bg-neutral-900/55 p-1 rounded-lg inline-flex">
         <button
-          v-if="filters.statusFilter"
-          class="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 flex items-center gap-0.5 transition-colors"
-          @click="filters.statusFilter = ''; void sessions.loadPage()"
+          type="button"
+          class="segment-pill-btn"
+          :class="[
+            'px-5 py-1.5 rounded-md text-sm font-medium transition-colors cursor-pointer border-0 outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/35',
+            !filters.statusFilter
+              ? 'bg-white dark:bg-neutral-800 text-slate-800 dark:text-slate-100 ring-1 ring-slate-200/90 dark:ring-white/10'
+              : 'bg-transparent text-slate-500 hover:text-slate-800 dark:text-neutral-500 dark:hover:text-neutral-200',
+          ]"
+          @click="setStatusFilter('')"
         >
-          <span class="i-lucide-x w-3 h-3" />
-          清除过滤
+          全部会话
+        </button>
+        <button
+          type="button"
+          class="segment-pill-btn"
+          :class="[
+            'px-5 py-1.5 rounded-md text-sm font-medium transition-colors cursor-pointer border-0 outline-none focus-visible:ring-2 focus-visible:ring-amber-500/35 flex items-center gap-1.5',
+            filters.statusFilter === 'pending'
+              ? 'bg-white dark:bg-neutral-800 text-amber-600 dark:text-amber-400 ring-1 ring-slate-200/90 dark:ring-white/10'
+              : 'bg-transparent text-slate-500 hover:text-slate-800 dark:text-neutral-500 dark:hover:text-neutral-200',
+          ]"
+          @click="setStatusFilter('pending')"
+        >
+          待分析
+          <!-- <span
+            :class="[
+              'py-0.5 px-1.5 rounded-full text-[10px] leading-none',
+              filters.statusFilter === 'pending'
+                ? 'bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-400'
+                : 'bg-slate-200 dark:bg-neutral-600 text-slate-500 dark:text-slate-300'
+            ]"
+          >{{ props.pendingCount ?? '' }}</span> -->
+        </button>
+        <button
+          type="button"
+          class="segment-pill-btn"
+          :class="[
+            'px-5 py-1.5 rounded-md text-sm font-medium transition-colors cursor-pointer border-0 outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/35',
+            filters.statusFilter === 'analyzed'
+              ? 'bg-white dark:bg-neutral-800 text-emerald-600 dark:text-emerald-400 ring-1 ring-slate-200/90 dark:ring-white/10'
+              : 'bg-transparent text-slate-500 hover:text-slate-800 dark:text-neutral-500 dark:hover:text-neutral-200',
+          ]"
+          @click="setStatusFilter('analyzed')"
+        >
+          已分析
         </button>
       </div>
 
-      <span v-if="sessions.error" class="text-red-500 flex items-center gap-1">
-        <span class="i-lucide-alert-circle w-3 h-3" />
-        {{ sessions.error }}
-      </span>
-      <span v-if="search.searchError" class="text-red-500 flex items-center gap-1">
-        <span class="i-lucide-alert-circle w-3 h-3" />
-        {{ search.searchError }}
-      </span>
+      <!-- 右侧统计 + 信息提示 -->
+      <div class="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
+        <span>共 <strong class="text-slate-800 dark:text-slate-200 font-semibold mx-0.5">{{ sessions.total }}</strong> 条记录</span>
+        <n-tooltip trigger="hover" placement="top-end">
+          <template #trigger>
+            <span class="i-lucide-info w-4 h-4 text-slate-400 cursor-help hover:text-emerald-500 transition-colors" />
+          </template>
+          搜索对象为已入库的知识卡片（FTS），不包含未提炼的会话标题。
+        </n-tooltip>
+
+        <span v-if="sessions.error" class="text-red-500 flex items-center gap-1 ml-2">
+          <span class="i-lucide-alert-circle w-3 h-3" />
+          {{ sessions.error }}
+        </span>
+        <span v-if="search.searchError" class="text-red-500 flex items-center gap-1 ml-2">
+          <span class="i-lucide-alert-circle w-3 h-3" />
+          {{ search.searchError }}
+        </span>
+      </div>
     </div>
   </div>
 </template>

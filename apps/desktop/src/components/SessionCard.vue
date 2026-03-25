@@ -35,7 +35,7 @@ const isLowValue = computed(() => valueKey.value === 'low' || valueKey.value ===
 
 /** 价值标签样式映射 */
 const valueBadgeClass: Record<string, string> = {
-  high:   'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800/60',
+  high:   'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border-emerald-100 dark:border-emerald-800/60',
   medium: 'bg-amber-50  dark:bg-amber-950/40  text-amber-700  dark:text-amber-400  border-amber-200  dark:border-amber-800/60',
   low:    'bg-slate-50  dark:bg-slate-900/60  text-slate-500  dark:text-slate-400  border-slate-200  dark:border-slate-700/60',
   none:   'bg-slate-50  dark:bg-slate-900/60  text-slate-400  dark:text-slate-500  border-slate-200  dark:border-slate-700/60',
@@ -45,7 +45,6 @@ const valueBadgeText: Record<string, string> = {
 }
 
 // ── 已分析判断 ─────────────────────────────────────────────────────────────
-// 有卡片（medium/high）或状态已标记为 analyzed（low/none 无卡片但也已完成分析）
 const isAnalyzed = computed(
   () => !!props.session.cardId || props.session.status === 'analyzed',
 )
@@ -58,15 +57,6 @@ const tagList = computed(() => {
   if (!raw) return []
   return raw.split(',').filter(Boolean).slice(0, 3)
 })
-
-// ── 大小格式化 ─────────────────────────────────────────────────────────────
-
-function formatSize(bytes: number): string {
-  if (!bytes || bytes <= 0) return '—'
-  if (bytes < 1024) return '<1 KB'
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`
-}
 
 // ── 交互 ──────────────────────────────────────────────────────────────────
 
@@ -90,7 +80,6 @@ function openSession() {
 function onAction(e: MouseEvent) {
   e.stopPropagation()
   if (isAnalyzed.value) {
-    // 已分析：有卡片则带 cardId 打开笔记，低价值无卡片则只看对话
     void router.push({
       name: 'session-detail',
       params: { sessionId: props.session.id },
@@ -102,8 +91,8 @@ function onAction(e: MouseEvent) {
 }
 
 const sourceIcon = computed(() => {
-  if (props.session.sourceId === 'claude-code') return 'i-lucide-bot'
-  if (props.session.sourceId === 'cursor') return 'i-lucide-terminal-square'
+  if (props.session.sourceId === 'claude-code') return 'i-lucide-terminal'
+  if (props.session.sourceId === 'cursor') return 'i-lucide-mouse-pointer-click'
   return 'i-lucide-message-square'
 })
 
@@ -111,37 +100,8 @@ const actionLoading = computed(
   () => props.analyzing || props.session.status === 'analyzing',
 )
 
-// ── 列表主标题：首条 user 预览优先（与计划 4.1 一致）──────────────────────
+// ── 列表主标题 ──────────────────────────────────────────────
 
-/** Tooltip 内文过长时截断，避免 DOM 过大 */
-const TOOLTIP_MAX = 500
-
-function clipForTooltip(s: string, max = TOOLTIP_MAX): string {
-  if (s.length <= max) return s
-  return `${s.slice(0, max)}…`
-}
-
-/**
- * 路径展示：过长时只显示最后若干段，全文放 Tooltip
- *   foo/bar/baz.json → …/bar/baz.json（段数少时保持原样）
- */
-function pathTail(path: string | null | undefined, segments = 2): string {
-  if (!path) return ''
-  const norm = path.replace(/\\/g, '/')
-  const parts = norm.split('/').filter(Boolean)
-  if (parts.length <= segments) return norm
-  return `…/${parts.slice(-segments).join('/')}`
-}
-
-const sessionPathDisplay = computed(
-  () => props.session.rawPath ?? props.session.projectPath ?? null,
-)
-
-/**
- * 列表主标题：
- * - 未分析：优先 cardTitle（SQL 中 COALESCE(card.title, analysis_title)），避免 CodeBuddy 首条 user 为 Workspace 元数据占满标题
- * - 已分析：仍以首条 user 预览为主（与「笔记」副标题搭配）
- */
 const listPrimaryTitle = computed(() => {
   const preview = props.session.firstUserPreview?.trim()
   const title = props.session.cardTitle?.trim()
@@ -155,16 +115,6 @@ const listPrimaryTitle = computed(() => {
   )
 })
 
-const listPrimaryTooltip = computed(() =>
-  clipForTooltip(
-    props.session.firstUserPreview?.trim()
-    || props.session.cardTitle?.trim()
-    || props.session.projectName
-    || props.session.projectPath
-    || props.session.sessionId,
-  ),
-)
-
 const timeTooltip = computed(() => {
   const u = props.session.updatedAt
   if (!u) return '会话时间：—'
@@ -172,275 +122,186 @@ const timeTooltip = computed(() => {
   return `会话时间：${readable}（updatedAt）`
 })
 
+/** 相对时间简写 */
+function relativeTime(iso: string | null | undefined): string {
+  if (!iso) return '—'
+  const d = new Date(iso)
+  const now = Date.now()
+  const diff = now - d.getTime()
+  const mins = Math.floor(diff / 60000)
+  if (mins < 60) return `${mins} 分钟前`
+  const hours = Math.floor(mins / 60)
+  if (hours < 24) return `${hours} 小时前`
+  const days = Math.floor(hours / 24)
+  if (days < 30) return `${days} 天前`
+  return iso.replace('T', ' ').slice(0, 10)
+}
+
+// ── 大小格式化 ─────────────────────────────────────────────────────────────
+
+function formatSize(bytes: number): string {
+  if (!bytes || bytes <= 0) return '—'
+  if (bytes < 1024) return '<1 KB'
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`
+}
+
 /**
- * 会话卡片视觉分层（与 KnowledgeView 条目对齐）：
- * - 默认：半透底 + 固定轻阴影；浅/深用同一套「阴影表层次」逻辑（暗色同样保留 shadow，不靠纯扁平）
- * - hover：仅描边变化，不抬升阴影（与知识库一致）
- * - 批量选中：ring + 加粗边框 + 渐变底 + 更强阴影，避免仅靠淡绿底不够醒目
+ * 卡片样式
  */
-const cardSurfaceClass = computed(() => {
-  const baseDisabled = isSelectDisabled.value
-    ? 'cursor-default opacity-60'
-    : 'cursor-pointer'
-
-  // 批量选中：强对比（与列表区渐变底区分仍清晰）
+const cardClass = computed(() => {
   if (props.selectable && props.selected) {
-    return [
-      baseDisabled,
-      'border-2 border-brand-500 dark:border-brand-400',
-      'bg-gradient-to-br from-brand-50/95 to-emerald-50/90 dark:from-brand-950/55 dark:to-emerald-950/40',
-      'shadow-[0_4px_24px_-4px_rgba(16,185,129,0.42)] dark:shadow-[0_4px_28px_-6px_rgba(16,185,129,0.36)]',
-      'ring-2 ring-brand-500/80 dark:ring-brand-400/70',
-    ]
+    return 'ring-2 ring-emerald-500 border-transparent bg-emerald-50/20 dark:bg-emerald-950/20'
   }
-
-  // 默认卡片面：与 KnowledgeView 列表项同源 class
-  const knowledgeLike = [
-    'border border-white/70 dark:border-emerald-900/50',
-    'bg-white/85 dark:bg-neutral-900/75',
-    'shadow-[0_2px_14px_-2px_rgba(16,185,129,0.18)] dark:shadow-[0_2px_16px_-4px_rgba(0,0,0,0.45)]',
-    'backdrop-blur-sm',
-    'transition-[border-color] duration-150',
-    baseDisabled,
-  ]
-
-  if (isAnalyzed.value) {
-    return [
-      ...knowledgeLike,
-      'hover:border-emerald-300/55 dark:hover:border-emerald-700/45',
-    ]
+  if (isLowValue.value && isAnalyzed.value) {
+    return 'opacity-85 bg-slate-50/80 dark:bg-neutral-900/60 border-slate-200/80 dark:border-neutral-700/60 hover:opacity-100 hover:border-slate-300 dark:hover:border-neutral-600'
   }
-
-  // 未分析：虚线边框，仍保持同一套阴影逻辑
-  return [
-    ...knowledgeLike,
-    'border-emerald-200/65 dark:border-emerald-800/50 border-dashed',
-    'hover:border-emerald-400/75 dark:hover:border-emerald-600/55',
-  ]
+  return 'bg-white dark:bg-neutral-900 border-slate-200/80 dark:border-neutral-700/60 hover:border-emerald-300 dark:hover:border-emerald-700'
 })
 </script>
 
 <template>
   <div
-    class="group relative rounded-xl"
-    :class="cardSurfaceClass"
+    class="group relative rounded-2xl border transition-all duration-300 cursor-pointer overflow-hidden flex"
+    :class="[cardClass, isSelectDisabled ? 'cursor-default opacity-60' : '']"
     @click="openSession"
   >
-    <!-- 左侧高/中价值色条（置于内容之上，避免与圆角/选中 ring 打架） -->
+    <!-- 左侧高/中价值色条 -->
     <div
       v-if="barColor"
-      class="absolute left-0 top-2 bottom-2 w-[3px] rounded-r-full z-[1] pointer-events-none"
+      class="absolute left-0 top-3 bottom-3 w-[4px] rounded-r-full z-10 pointer-events-none"
       :style="{ backgroundColor: barColor }"
     />
 
-    <div class="flex items-center gap-3 px-4 py-3">
+    <div class="flex-1 p-5" :class="barColor ? 'pl-6' : ''">
+      <!-- 头部：标签 + 操作按钮 -->
+      <div class="flex items-start justify-between gap-4">
+        <div class="space-y-2.5 flex-1 min-w-0">
+          <!-- 状态标签行 -->
+          <div class="flex items-center gap-2 flex-wrap">
+            <!-- 批量模式 checkbox -->
+            <div v-if="selectable" class="shrink-0" @click.stop>
+              <n-checkbox
+                :checked="selected"
+                :disabled="isSelectDisabled"
+                @update:checked="!isSelectDisabled && emit('update:selected', session.id, $event)"
+              />
+            </div>
 
-      <!-- 批量模式 checkbox -->
-      <div v-if="selectable" class="shrink-0" @click.stop>
-        <n-checkbox
-          :checked="selected"
-          :disabled="isSelectDisabled"
-          @update:checked="!isSelectDisabled && emit('update:selected', session.id, $event)"
-        />
-      </div>
-
-      <!-- ════════════════════════════════════
-           左列：项目名+时间同行 / 路径与会话 id / 消息+大小
-           ════════════════════════════════════ -->
-      <div class="w-48 shrink-0 min-w-0">
-        <!-- 项目名与时间同一行；时间 Tooltip 为「会话时间」 -->
-        <div class="flex items-center justify-between gap-2 min-w-0 text-[11px]">
-          <span class="truncate text-neutral-600 dark:text-neutral-300 font-medium">
-            {{ session.projectName || session.projectPath || '未命名项目' }}
-          </span>
-          <n-tooltip trigger="hover" :delay="300">
-            <template #trigger>
-              <span class="shrink-0 font-mono tabular-nums text-neutral-400 cursor-default">
-                {{ session.updatedAt?.replace('T', ' ').slice(0, 16) ?? '—' }}
+            <template v-if="isAnalyzed">
+              <!-- 价值标签 -->
+              <n-tag
+                v-if="session.value && (valueKey === 'high' || valueKey === 'medium')"
+                size="small"
+                :bordered="false"
+                class="font-medium rounded"
+                :class="valueBadgeClass[valueKey]"
+              >
+                {{ valueBadgeText[valueKey] }}
+              </n-tag>
+              <!-- 类型标签 -->
+              <n-tag
+                v-if="session.cardType"
+                size="small"
+                type="info"
+                :bordered="false"
+                class="rounded"
+              >
+                {{ getCardTypeLabel(session.cardType) }}
+              </n-tag>
+              <!-- 低/无价值标签 -->
+              <span
+                v-if="isLowValue && session.value"
+                class="inline-flex items-center text-[10px] font-medium px-1.5 py-px rounded border italic"
+                :class="valueBadgeClass[valueKey] ?? valueBadgeClass.none"
+              >
+                {{ valueBadgeText[valueKey] ?? session.value }}
               </span>
             </template>
-            {{ timeTooltip }}
-          </n-tooltip>
-        </div>
 
-        <!-- 路径（省略末段 + 全文 Tooltip）与会话 ID -->
-        <div class="mt-1 space-y-0.5 text-[10px] text-neutral-400 min-w-0">
-          <n-tooltip
-            v-if="sessionPathDisplay"
-            trigger="hover"
-            placement="top-start"
-            :delay="200"
-          >
-            <template #trigger>
-              <div class="flex items-center gap-1 min-w-0">
-                <span class="i-lucide-folder-open w-3 h-3 shrink-0 opacity-70" />
-                <span class="truncate font-mono">{{ pathTail(sessionPathDisplay) }}</span>
-              </div>
-            </template>
-            {{ sessionPathDisplay }}
-          </n-tooltip>
-          <n-tooltip trigger="hover" :delay="200">
-            <template #trigger>
-              <div class="flex items-center gap-1 min-w-0 font-mono opacity-90">
-                <span class="i-lucide-fingerprint w-3 h-3 shrink-0" />
-                <span class="truncate">{{ session.sessionId }}</span>
-              </div>
-            </template>
-            会话 ID：{{ session.sessionId }}
-          </n-tooltip>
-        </div>
-
-        <div class="text-[11px] text-neutral-400 mt-1 flex items-center gap-2">
-          <span :class="sourceIcon" class="w-3 h-3 opacity-70 shrink-0" />
-          <span class="flex items-center gap-0.5">
-            <span class="i-lucide-message-circle w-3 h-3" />
-            {{ session.messageCount }} 条
-          </span>
-          <span class="flex items-center gap-0.5">
-            <span class="i-lucide-hard-drive w-3 h-3" />
-            {{ formatSize(session.rawSizeBytes) }}
-          </span>
-        </div>
-      </div>
-
-      <!-- ════════════════════════════════════
-           右内容区：已分析 / 未分析 两态
-           ════════════════════════════════════ -->
-      <div class="flex-1 min-w-0">
-        <!-- 主标题：首条 user 预览 + Tooltip；已分析时可附「笔记」副标题 -->
-        <div class="mb-1.5 min-w-0">
-          <n-tooltip
-            trigger="hover"
-            placement="top-start"
-            :delay="250"
-          >
-            <template #trigger>
-              <p
-                class="text-sm font-semibold leading-snug text-neutral-900 dark:text-neutral-100 line-clamp-2"
+            <template v-else>
+              <!-- 未分析：待分析 / 来源标签 -->
+              <n-tag
+                size="small"
+                :bordered="false"
+                :type="session.status === 'analyzing' ? 'info'
+                     : session.status === 'error' ? 'error'
+                     : 'warning'"
+                class="rounded"
               >
-                {{ listPrimaryTitle }}
-              </p>
+                {{ session.status === 'pending'   ? '待分析'
+                 : session.status === 'analyzing' ? '分析中'
+                 : session.status === 'error'     ? '失败'
+                 : session.status }}
+              </n-tag>
+              <n-tag size="small" :bordered="false" class="rounded">
+                {{ session.sourceId }}
+              </n-tag>
             </template>
-            <div class="max-w-md whitespace-pre-wrap break-words text-xs">
-              {{ listPrimaryTooltip }}
-            </div>
-          </n-tooltip>
-          <p
-            v-if="isAnalyzed && session.cardTitle"
-            class="text-[11px] text-neutral-500 dark:text-neutral-400 mt-0.5 line-clamp-1"
-          >
-            笔记：{{ session.cardTitle }}
-          </p>
-        </div>
-
-        <!-- ── 已分析：三行布局 ── -->
-        <template v-if="isAnalyzed">
-
-          <!-- 第一行：类型 Badge + 价值 Badge -->
-          <div class="flex items-center gap-1.5 flex-wrap">
-            <n-tag
-              v-if="session.cardType"
-              size="tiny"
-              :bordered="false"
-              type="info"
-            >
-              {{ getCardTypeLabel(session.cardType) }}
-            </n-tag>
-            <!-- 价值标签（始终展示，颜色随价值变化） -->
-            <span
-              v-if="session.value"
-              class="inline-flex items-center text-[10px] font-medium px-1.5 py-px rounded border"
-              :class="valueBadgeClass[valueKey] ?? valueBadgeClass.none"
-            >
-              {{ valueBadgeText[valueKey] ?? session.value }}
-            </span>
           </div>
 
-          <!-- 第二行：摘要文字 -->
-          <p
-            v-if="session.cardSummary"
-            class="text-xs mt-1 line-clamp-1 leading-relaxed"
-            :class="isLowValue
-              ? 'text-neutral-400 dark:text-neutral-500 italic'
-              : 'text-neutral-600 dark:text-neutral-400'"
-          >
-            {{ session.cardSummary }}
-          </p>
-          <p v-else class="text-xs text-neutral-400 dark:text-neutral-600 mt-1 italic">暂无摘要</p>
+          <!-- 标题 -->
+          <div>
+            <h3
+              class="text-base font-semibold leading-relaxed pr-4"
+              :class="isLowValue && isAnalyzed
+                ? 'text-slate-500 dark:text-slate-400 italic'
+                : 'text-slate-800 dark:text-slate-100'"
+            >
+              {{ listPrimaryTitle }}
+            </h3>
+            <!-- 摘要 -->
+            <p
+              v-if="isAnalyzed && session.cardSummary"
+              class="text-[13px] line-clamp-1 mt-1.5"
+              :class="isLowValue
+                ? 'text-slate-400 dark:text-slate-500 italic'
+                : 'text-slate-500 dark:text-slate-400'"
+            >
+              {{ session.cardSummary }}
+            </p>
+            <p
+              v-else-if="!isAnalyzed"
+              class="text-[13px] text-slate-500 dark:text-slate-400 line-clamp-1 mt-1.5"
+            >
+              {{ session.status === 'error'
+                ? (session.errorMessage || '分析失败，点击查看详情或重试。')
+                : '原始对话，点击查看内容或进行知识提炼。' }}
+            </p>
+          </div>
 
-          <!-- 第三行：标签 chips（最多 3 个） -->
-          <div v-if="tagList.length" class="flex items-center gap-1 mt-1 flex-wrap">
+          <!-- 技术标签 -->
+          <div v-if="tagList.length" class="flex gap-2 pt-1">
             <span
               v-for="tag in tagList"
               :key="tag"
-              class="inline-block text-[10px] px-1.5 py-px rounded-full
-                     bg-neutral-100 dark:bg-neutral-800
-                     text-neutral-500 dark:text-neutral-400
-                     border border-neutral-200 dark:border-neutral-700"
+              class="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 dark:bg-neutral-800 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-neutral-700"
             >{{ tag }}</span>
           </div>
-        </template>
+        </div>
 
-        <!-- ── 未分析 ── -->
-        <template v-else>
-          <div class="flex items-center gap-1.5 flex-wrap">
-            <n-tag size="tiny" :bordered="false">{{ session.sourceId }}</n-tag>
-            <n-tag
-              size="tiny"
-              :bordered="false"
-              :type="session.status === 'analyzing' ? 'info'
-                   : session.status === 'error' ? 'error'
-                   : 'default'"
-            >
-              {{ session.status === 'pending'   ? '待分析'
-               : session.status === 'analyzing' ? '分析中'
-               : session.status === 'error'     ? '失败'
-               : session.status }}
-            </n-tag>
-          </div>
-          <p
-            v-if="session.status === 'error'"
-            class="text-xs text-red-600 dark:text-red-400 line-clamp-3 mt-1.5 leading-relaxed"
-          >
-            {{ session.errorMessage || '分析失败，点击查看详情或重试。' }}
-          </p>
-          <p
-            v-else
-            class="text-xs text-neutral-500 dark:text-neutral-400 line-clamp-1 mt-1.5 leading-relaxed"
-          >
-            原始对话，点击查看内容或进行知识提炼。
-          </p>
-        </template>
-      </div>
-
-      <!-- ── 操作按钮 ──
-           无价值（none）：不显示任何按钮
-           低价值（low）且已分析：查看对话
-           有卡片（medium/high）：查看笔记
-           未分析：分析
-      -->
-      <!-- 已分析且无价值（none）时不显示任何按钮；其他情况（待分析、低价值、中/高价值）均显示 -->
-      <div
-        v-if="!selectable && !(isAnalyzed && valueKey === 'none')"
-        class="shrink-0"
-        @click.stop
-      >
-        <n-button
-          :type="isAnalyzed ? 'default' : 'primary'"
-          size="small"
-          :loading="actionLoading"
-          :disabled="actionLoading"
-          @click="onAction"
+        <!-- 悬浮操作按钮 -->
+        <div
+          v-if="!selectable && !(isAnalyzed && valueKey === 'none')"
+          class="opacity-0 group-hover:opacity-100 transition-opacity duration-200 shrink-0"
+          @click.stop
         >
-          <span class="inline-flex items-center gap-1.5">
-            <template v-if="!actionLoading">
+          <n-button
+            secondary
+            size="small"
+            class="rounded-lg"
+            :loading="actionLoading"
+            :disabled="actionLoading"
+            @click="onAction"
+          >
+            <template #icon>
               <span
                 :class="session.cardId
                   ? 'i-lucide-book-open'
                   : isAnalyzed
                     ? 'i-lucide-messages-square'
                     : 'i-lucide-sparkles'"
-                class="w-3.5 h-3.5"
+                class="w-4 h-4"
               />
             </template>
             {{
@@ -449,8 +310,37 @@ const cardSurfaceClass = computed(() => {
               : isAnalyzed   ? '查看对话'
               : '分析'
             }}
-          </span>
-        </n-button>
+          </n-button>
+        </div>
+      </div>
+
+      <!-- 底部元数据行 -->
+      <div class="flex flex-wrap items-center gap-x-5 gap-y-2 text-[12px] text-slate-500 dark:text-slate-400 pt-3.5 mt-3.5 border-t border-slate-100 dark:border-neutral-800">
+        <span class="flex items-center gap-1.5 font-medium text-slate-700 dark:text-slate-300 bg-slate-100/50 dark:bg-neutral-800/50 px-2 py-1 rounded-md">
+          <span class="i-lucide-folder w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
+          {{ session.projectName || session.projectPath || '未命名项目' }}
+        </span>
+        <n-tooltip trigger="hover" :delay="300">
+          <template #trigger>
+            <span class="flex items-center gap-1.5 cursor-default">
+              <span class="i-lucide-clock w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
+              {{ relativeTime(session.updatedAt) }}
+            </span>
+          </template>
+          {{ timeTooltip }}
+        </n-tooltip>
+        <span class="flex items-center gap-1.5">
+          <span class="i-lucide-message-circle w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
+          {{ session.messageCount }} 条对话
+        </span>
+        <span v-if="session.rawSizeBytes" class="flex items-center gap-1.5">
+          <span class="i-lucide-hard-drive w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
+          {{ formatSize(session.rawSizeBytes) }}
+        </span>
+        <span class="flex items-center gap-1.5 text-slate-400 dark:text-slate-500 font-mono bg-slate-50 dark:bg-neutral-800 px-1.5 py-0.5 rounded border border-slate-100 dark:border-neutral-700">
+          <span :class="sourceIcon" class="w-3 h-3" />
+          {{ session.sourceId }}
+        </span>
       </div>
     </div>
   </div>

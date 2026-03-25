@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, h, onMounted, ref, watch } from 'vue'
-import { NTree, NTag, NEmpty, NSpin, NTooltip, NButton, useDialog, useMessage } from 'naive-ui'
+import { NTree, NEmpty, NSpin, NTooltip, NButton, useDialog, useMessage } from 'naive-ui'
 import type { TreeOption } from 'naive-ui'
 import { useUiStore } from '../stores/ui'
 import { useFiltersStore } from '../stores/filters'
@@ -69,6 +69,14 @@ function hostLabel(host: string) {
   return HOST_LABELS[host] ?? host
 }
 
+/**
+ * 树选中 / 展开：必须在 treeData 之前声明。
+ * treeData 依赖 selectedKeys，项目节点 prefix（拐角线 + 文件夹）才能随选中切换颜色，与 design/ui_demo 一致。
+ */
+const selectedKeys = ref<string[]>([])
+/** 默认展开由下方 watch(treeData) 在首屏填充 */
+const expandedKeys = ref<string[]>([])
+
 // ────────────────── NTree 数据构建 ──────────────────
 
 /**
@@ -79,6 +87,8 @@ function hostLabel(host: string) {
  *   "src:<sourceId>" / "host:<sourceId>/<host>" / "proj:<sourceId>/<host>/<project>"
  */
 const treeData = computed<TreeOption[]>(() => {
+  /** 当前选中节点集合，用于项目行文件夹 icon 高亮（emerald / slate） */
+  const selectedSet = new Set(selectedKeys.value)
   const groups = sidebar.sessionGroups
   const sourceMap = new Map<string, Map<string, { project: string | null; count: number }[]>>()
 
@@ -100,11 +110,25 @@ const treeData = computed<TreeOption[]>(() => {
       for (const item of items) {
         hostTotal += item.count
         const projName = item.project ?? '(未关联项目)'
+        const projKey = `proj:${sourceId}/${host}/${projName}`
+        const projSelected = selectedSet.has(projKey)
         projChildren.push({
-          key: `proj:${sourceId}/${host}/${projName}`,
+          key: projKey,
           label: projName,
           isLeaf: true,
-          suffix: () => h('span', { class: 'sidebar-count' }, String(item.count)),
+          // 与 ui_demo 一致：层级拐角线 + 文件夹；选中时文件夹用 emerald
+          prefix: () =>
+            h('span', { class: 'flex items-center gap-0.5 flex-shrink-0' }, [
+              h('span', {
+                class: 'i-lucide-corner-down-right w-3 h-3 text-slate-300 dark:text-neutral-600',
+              }),
+              h('span', {
+                class: projSelected
+                  ? 'i-lucide-folder w-4 h-4 text-emerald-500 dark:text-emerald-400'
+                  : 'i-lucide-folder w-4 h-4 text-slate-400 dark:text-neutral-500',
+              }),
+            ]),
+          suffix: () => h('span', { class: 'ml-auto text-[10px] text-slate-400 font-mono' }, String(item.count)),
         })
       }
       sourceTotal += hostTotal
@@ -113,7 +137,7 @@ const treeData = computed<TreeOption[]>(() => {
         label: hostLabel(host),
         children: projChildren,
         prefix: () => h('span', { class: 'i-lucide-server w-3.5 h-3.5 opacity-50' }),
-        suffix: () => h('span', { class: 'sidebar-count' }, String(hostTotal)),
+        suffix: () => h('span', { class: 'ml-auto text-[10px] text-slate-400 font-mono' }, String(hostTotal)),
       })
     }
 
@@ -122,7 +146,7 @@ const treeData = computed<TreeOption[]>(() => {
       label: getSourceMeta(sourceId).label,
       children: hostChildren,
       prefix: () => renderSourceIcon(sourceId),
-      suffix: () => h('span', { class: 'sidebar-count font-medium' }, String(sourceTotal)),
+      suffix: () => h('span', { class: 'ml-auto text-[10px] text-slate-400 font-mono' }, String(sourceTotal)),
     })
   }
   return result
@@ -132,32 +156,31 @@ const totalSessions = computed(() =>
   sidebar.sessionGroups.reduce((sum, g) => sum + g.count, 0),
 )
 
-/** 自定义树节点 label 渲染：超长截断 + tooltip */
+/** 自定义树节点 label 渲染：超长截断 + tooltip；项目行未选中/选中字重与 demo 对齐 */
 function renderLabel({ option }: { option: TreeOption }) {
   const label = String(option.label ?? '')
+  const key = String(option.key ?? '')
+  const isProj = key.startsWith('proj:')
+  const projSelected = isProj && selectedKeys.value.includes(key)
+  const labelClass =
+    'sidebar-label' +
+    (isProj
+      ? projSelected
+        ? ' font-medium text-slate-800 dark:text-slate-100'
+        : ' text-slate-600 dark:text-slate-300'
+      : '')
   return h(NTooltip, {
     trigger: 'hover',
     delay: 500,
     placement: 'right',
   }, {
     trigger: () => h('span', {
-      class: 'sidebar-label',
+      class: labelClass,
       style: 'display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;',
     }, label),
     default: () => label,
   })
 }
-
-// ────────────────── 树节点选中 ──────────────────
-
-/**
- * 用 ref 维护选中 key（而非 computed），避免 NTree 内部状态与外部冲突。
- * 当 filter 变更时手动同步。
- */
-const selectedKeys = ref<string[]>([])
-
-/** 默认展开所有数据源节点 */
-const expandedKeys = ref<string[]>([])
 
 watch(treeData, (data) => {
   if (expandedKeys.value.length === 0 && data.length > 0) {
@@ -378,54 +401,57 @@ watch(() => ui.activeTab, (tab) => {
 </script>
 
 <template>
-  <aside class="shrink-0 flex flex-col w-56 bg-neutral-50 dark:bg-neutral-950 border-r border-neutral-200 dark:border-neutral-800 select-none">
+  <aside class="shrink-0 flex flex-col w-[260px] bg-white dark:bg-neutral-950 border-r border-slate-200 dark:border-neutral-800 select-none">
     <div class="flex-1 overflow-y-auto">
 
       <!-- ============== 对话记录模式 ============== -->
       <template v-if="ui.activeTab === 'sessions'">
-        <!-- 全部对话按钮 -->
-        <div
-          class="flex items-center gap-2 mx-2 mt-2 mb-1 px-2 h-8 rounded-md transition-colors cursor-pointer"
-          :class="isAllMode
-            ? 'bg-brand-50 dark:bg-brand-950/30 text-brand-700 dark:text-brand-300'
-            : 'text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-900'"
-          @click="selectAll"
-        >
-          <span class="i-lucide-messages-square w-4 h-4 shrink-0" />
-          <span class="text-sm font-medium">全部对话</span>
-          <span class="ml-auto text-xs tabular-nums opacity-60">{{ totalSessions }}</span>
+        <!-- 顶部操作区 -->
+        <div class="p-3 pb-2 space-y-2 border-b border-slate-100 dark:border-neutral-800">
+          <!-- 全部对话按钮 -->
+          <div
+            class="flex items-center gap-2 px-2.5 py-1.5 rounded-md transition-colors cursor-pointer text-sm font-medium"
+            :class="isAllMode
+              ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-300'
+              : 'text-slate-700 dark:text-neutral-300 hover:bg-slate-100 dark:hover:bg-neutral-900'"
+            @click="selectAll"
+          >
+            <span class="i-lucide-messages-square w-4 h-4 shrink-0" />
+            <span>全部对话</span>
+            <span class="ml-auto text-xs opacity-80 tabular-nums">{{ totalSessions }}</span>
+          </div>
+
+          <!-- 会话整理按钮 -->
+          <n-tooltip
+            v-if="!sidebar.groupsLoading && treeData.length"
+            placement="bottom"
+            trigger="hover"
+          >
+            <template #trigger>
+              <n-button
+                size="small"
+                block
+                secondary
+                :type="sessionOrganizeMode ? 'primary' : 'default'"
+                @click="toggleSessionOrganizeMode"
+              >
+                <template #icon>
+                  <span class="i-lucide-list-checks w-4 h-4" />
+                </template>
+                {{ sessionOrganizeMode ? '退出整理' : '会话整理' }}
+              </n-button>
+            </template>
+            点「会话整理」后勾选目录中的分组，即可批量移除（仅删除应用内记录）。
+          </n-tooltip>
         </div>
 
-        <div class="mx-3 my-1 border-t border-neutral-200/70 dark:border-neutral-800" />
-
-        <!-- 会话整理：多选分组后批量删除（仅应用内数据） -->
+        <!-- 整理模式提示与移除按钮 -->
         <div
-          v-if="!sidebar.groupsLoading && treeData.length"
-          class="px-2 pb-2 space-y-1.5"
+          v-if="sessionOrganizeMode && !sidebar.groupsLoading && treeData.length"
+          class="px-3 py-2 space-y-1.5"
         >
-          <n-button
-            size="small"
-            block
-            secondary
-            :type="sessionOrganizeMode ? 'primary' : 'default'"
-            @click="toggleSessionOrganizeMode"
-          >
-            <template #icon>
-              <span class="i-lucide-list-checks w-4 h-4" />
-            </template>
-            {{ sessionOrganizeMode ? '退出整理' : '会话整理' }}
-          </n-button>
-          <p
-            v-if="sessionOrganizeMode"
-            class="text-[11px] text-neutral-500 dark:text-neutral-400 leading-snug px-0.5"
-          >
+          <p class="text-[11px] text-slate-500 dark:text-neutral-400 leading-snug px-0.5">
             勾选目录中的多个分组，再点「移除已选分组会话」。与顶部列表状态筛选组合时，每组都会带上当前状态条件。
-          </p>
-          <p
-            v-else-if="isAllMode"
-            class="text-[11px] text-neutral-500 dark:text-neutral-400 leading-snug px-0.5"
-          >
-            点「会话整理」后勾选目录中的分组，即可批量移除（仅删除应用内记录）。
           </p>
           <n-button
             v-if="showRemoveSessionsButton"
@@ -442,6 +468,13 @@ watch(() => ui.activeTab, (tab) => {
             </template>
             移除已选分组会话
           </n-button>
+        </div>
+
+        <!-- 来源项目标题 -->
+        <div class="px-4 pt-3 pb-2">
+          <div class="text-[11px] font-semibold text-slate-400 dark:text-neutral-500 uppercase tracking-widest mb-2 flex items-center gap-1.5">
+            <span class="i-lucide-folders w-3.5 h-3.5" /> 来源项目
+          </div>
         </div>
 
         <!-- 加载中 -->
@@ -476,107 +509,103 @@ watch(() => ui.activeTab, (tab) => {
 
       <!-- ============== 知识库模式 ============== -->
       <template v-else>
-        <!-- 类型筛选 -->
-        <div class="px-3 pt-3.5 pb-2">
-          <div class="flex items-center gap-1.5 text-neutral-400 dark:text-neutral-500 mb-2.5">
-            <span class="i-lucide-layout-grid w-3.5 h-3.5" />
-            <span class="text-[11px] font-semibold uppercase tracking-widest">类型</span>
+        <div class="flex-1 overflow-y-auto p-4 space-y-6">
+          <!-- 类型筛选 -->
+          <div>
+            <div class="text-[11px] font-semibold text-slate-400 dark:text-neutral-500 uppercase tracking-widest mb-3 flex items-center gap-1.5">
+              <span class="i-lucide-layout-grid w-3.5 h-3.5" />
+              类型
+            </div>
+            <div class="flex flex-wrap gap-2">
+              <span
+                :class="[
+                  'px-2.5 py-1 rounded-full text-xs font-medium cursor-pointer transition-colors',
+                  !filters.cardType
+                    ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/60'
+                    : 'text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-neutral-700 hover:bg-slate-50 dark:hover:bg-neutral-800'
+                ]"
+                @click="filters.cardType = ''"
+              >
+                全部 <span class="opacity-60 ml-0.5 text-[10px]">{{ totalCards }}</span>
+              </span>
+              <span
+                v-for="t in sidebar.cardTypes"
+                :key="t.name"
+                :class="[
+                  'px-2.5 py-1 rounded-full text-xs cursor-pointer transition-colors',
+                  filters.cardType === t.name
+                    ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/60 font-medium'
+                    : 'text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-neutral-700 hover:bg-slate-50 dark:hover:bg-neutral-800'
+                ]"
+                @click="selectCardType(t.name)"
+              >
+                {{ getCardTypeLabel(t.name) }} <span class="opacity-60 ml-0.5 text-[10px]">{{ t.count }}</span>
+              </span>
+            </div>
           </div>
-          <div class="flex flex-wrap gap-1.5">
-            <n-tag
-              :bordered="!!filters.cardType"
-              :type="!filters.cardType ? 'primary' : 'default'"
-              size="small"
-              round
-              :class="{ 'cursor-pointer': true }"
-              @click="filters.cardType = ''"
-            >
-              全部 {{ totalCards }}
-            </n-tag>
-            <n-tag
-              v-for="t in sidebar.cardTypes"
-              :key="t.name"
-              :bordered="filters.cardType !== t.name"
-              :type="filters.cardType === t.name ? 'primary' : 'default'"
-              size="small"
-              round
-              class="cursor-pointer"
-              @click="selectCardType(t.name)"
-            >
-              {{ getCardTypeLabel(t.name) }} {{ t.count }}
-            </n-tag>
-          </div>
-        </div>
 
-        <div class="mx-3 my-1.5 border-t border-neutral-200/70 dark:border-neutral-800" />
+          <div class="h-px bg-slate-100 dark:bg-neutral-800" />
 
-        <!-- 标签筛选 -->
-        <div class="px-3 py-2">
-          <div class="flex items-center gap-1.5 text-neutral-400 dark:text-neutral-500 mb-2.5">
-            <span class="i-lucide-tags w-3.5 h-3.5" />
-            <span class="text-[11px] font-semibold uppercase tracking-widest">标签</span>
-          </div>
-          <div v-if="sidebar.tagsLoading" class="flex items-center justify-center py-4">
-            <n-spin size="small" />
-          </div>
-          <div
-            v-else-if="sidebar.tags.length"
-            class="flex flex-wrap gap-1.5 max-h-64 overflow-y-auto pr-0.5"
-          >
-            <n-tag
-              v-for="tag in sidebar.tags"
-              :key="tag.name"
-              :bordered="!filters.selectedTags.includes(tag.name)"
-              :type="filters.selectedTags.includes(tag.name) ? 'primary' : 'default'"
-              size="small"
-              round
-              class="cursor-pointer"
-              @click="toggleTag(tag.name)"
+          <!-- 标签筛选 -->
+          <div>
+            <div class="text-[11px] font-semibold text-slate-400 dark:text-neutral-500 uppercase tracking-widest mb-3 flex items-center gap-1.5">
+              <span class="i-lucide-tags w-3.5 h-3.5" />
+              标签
+            </div>
+            <div v-if="sidebar.tagsLoading" class="flex items-center justify-center py-4">
+              <n-spin size="small" />
+            </div>
+            <div
+              v-else-if="sidebar.tags.length"
+              class="flex flex-wrap gap-1.5 max-h-64 overflow-y-auto pr-0.5"
             >
-              {{ tag.name }}
-              <template #avatar>
-                <span class="text-[10px] opacity-60 ml-0.5">{{ tag.count }}</span>
-              </template>
-            </n-tag>
+              <span
+                v-for="tag in sidebar.tags"
+                :key="tag.name"
+                :class="[
+                  'px-2.5 py-1 rounded-full text-xs cursor-pointer transition-colors',
+                  filters.selectedTags.includes(tag.name)
+                    ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/60 font-medium'
+                    : 'text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-neutral-700 hover:bg-slate-50 dark:hover:bg-neutral-800'
+                ]"
+                @click="toggleTag(tag.name)"
+              >
+                {{ tag.name }} <span class="opacity-50 ml-0.5 text-[10px]">{{ tag.count }}</span>
+              </span>
+            </div>
+            <n-empty v-else size="small" description="暂无标签" class="py-2" />
           </div>
-          <n-empty v-else size="small" description="暂无标签" class="py-2" />
-        </div>
 
-        <div class="mx-3 my-1.5 border-t border-neutral-200/70 dark:border-neutral-800" />
+          <div class="h-px bg-slate-100 dark:bg-neutral-800" />
 
-        <!-- 技术栈：由 cards.tech_stack 列聚合；单卡详情仍在笔记标题下 -->
-        <div class="px-3 py-2">
-          <div class="flex items-center gap-1.5 text-neutral-400 dark:text-neutral-500 mb-2.5">
-            <span class="i-lucide-layers w-3.5 h-3.5" />
-            <span class="text-[11px] font-semibold uppercase tracking-widest">技术栈</span>
-          </div>
-          <div v-if="sidebar.tagsLoading" class="flex items-center justify-center py-3">
-            <n-spin size="small" />
-          </div>
-          <div
-            v-else-if="sidebar.techStacks.length"
-            class="flex flex-wrap gap-1.5 max-h-52 overflow-y-auto pr-0.5"
-          >
-            <n-tag
-              v-for="row in sidebar.techStacks"
-              :key="row.name"
-              type="info"
-              size="small"
-              round
-              :bordered="false"
+          <!-- 技术栈 -->
+          <div>
+            <div class="text-[11px] font-semibold text-slate-400 dark:text-neutral-500 uppercase tracking-widest mb-3 flex items-center gap-1.5">
+              <span class="i-lucide-layers w-3.5 h-3.5" />
+              技术栈
+            </div>
+            <div v-if="sidebar.tagsLoading" class="flex items-center justify-center py-3">
+              <n-spin size="small" />
+            </div>
+            <div
+              v-else-if="sidebar.techStacks.length"
+              class="flex flex-wrap gap-1.5 max-h-52 overflow-y-auto pr-0.5"
             >
-              {{ row.name }}
-              <template #avatar>
-                <span class="text-[10px] opacity-60 ml-0.5">{{ row.count }}</span>
-              </template>
-            </n-tag>
+              <span
+                v-for="row in sidebar.techStacks"
+                :key="row.name"
+                class="px-2.5 py-1 rounded-full text-xs font-medium text-blue-700 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 cursor-pointer"
+              >
+                {{ row.name }} <span class="opacity-60 ml-0.5 text-[10px]">{{ row.count }}</span>
+              </span>
+            </div>
+            <p v-else class="text-[11px] text-slate-400 dark:text-neutral-500 py-2 leading-relaxed">
+              暂无。需会话经提炼写入 tech_stack；排查终端
+              <code class="text-[10px] opacity-90">normalize: tech_stack</code>
+              与
+              <code class="text-[10px] opacity-90">创建卡片: … tech_stack列</code>
+            </p>
           </div>
-          <p v-else class="text-[11px] text-neutral-400 dark:text-neutral-500 py-2 leading-relaxed">
-            暂无。需会话经提炼写入 tech_stack；排查终端
-            <code class="text-[10px] opacity-90">normalize: tech_stack</code>
-            与
-            <code class="text-[10px] opacity-90">创建卡片: … tech_stack列</code>
-          </p>
         </div>
       </template>
 
@@ -603,12 +632,6 @@ watch(() => ui.activeTab, (tab) => {
 }
 .sidebar-tree :deep(.n-tree-node-content) {
   overflow: hidden;
-}
-.sidebar-count {
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
-  margin-right: 4px;
-  opacity: 0.5;
 }
 /* 品牌图标：圆角使外观更精致 */
 .brand-icon {
