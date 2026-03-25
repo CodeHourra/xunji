@@ -1,6 +1,6 @@
 # 踩坑：脚手架阶段 — UnoCSS、Tauri 布局、存储层与 CSP
 
-本文汇总在 **寻迹 v0.1 脚手架与 Phase 1～2（存储层）** 开发中遇到的典型问题：**现象 → 原因 → 解决办法**。与「图标在构建后全部丢失」相关的 Node/Bun 版本与 `node:util.styleText` 问题，见同目录 [troubleshooting-unocss-icons-missing.md](./troubleshooting-unocss-icons-missing.md)。
+本文汇总在 **寻迹 v0.1 脚手架与 Phase 1～2（存储层）** 开发中遇到的典型问题：**现象 → 原因 → 解决办法**。与「图标在构建后全部丢失」相关的 Node/Bun 版本与 `node:util.styleText` 问题，见同目录 [构建-UnoCSS-生产构建图标丢失.md](./构建-UnoCSS-生产构建图标丢失.md)。
 
 ---
 
@@ -221,9 +221,11 @@ env_logger::Builder::from_env(
 
 ## 相关文档
 
-- [troubleshooting-unocss-icons-missing.md](./troubleshooting-unocss-icons-missing.md) — 构建后图标全丢、Node `styleText`、Bun `--bun`
-- [桌面应用-提炼-CLI-路径与环境变量.md](./桌面应用-提炼-CLI-路径与环境变量.md) — 桌面进程 PATH、CLI 绝对路径
-- [monorepo-混用包管理器.md](./monorepo-混用包管理器.md) — 锁文件与依赖一致性
+- [桌面应用-Tailwind-ring与overflow-hidden裁切.md](./桌面应用-Tailwind-ring与overflow-hidden裁切.md) — `ring` 画在盒外时被 `overflow-hidden` 裁掉，选中描边不完整
+- [桌面应用-分段控件-WebView原生button默认样式.md](./桌面应用-分段控件-WebView原生button默认样式.md) — 分段条原生 `<button>` 在 WebView 下的灰底与暗色层次问题
+- [构建-UnoCSS-生产构建图标丢失.md](./构建-UnoCSS-生产构建图标丢失.md) — 构建后图标全丢、Node `styleText`、Bun `--bun`
+- [桌面应用-提炼-CLI路径与环境变量.md](./桌面应用-提炼-CLI路径与环境变量.md) — 桌面进程 PATH、CLI 绝对路径
+- [Monorepo-混用包管理器.md](./Monorepo-混用包管理器.md) — 锁文件与依赖一致性
 
 ---
 

@@ -15,6 +15,7 @@ pub async fn search_cards(
     query: String,
     tags: Option<Vec<String>>,
     card_type: Option<String>,
+    tech_stack: Option<Vec<String>>,
 ) -> Result<Vec<CardSummary>, String> {
     let db = state.db.clone();
     let filters = CardFilters {
@@ -22,6 +23,7 @@ pub async fn search_cards(
         card_type,
         value: None,
         search: None,
+        tech_stack,
     };
     tokio::task::spawn_blocking(move || db.search_cards(&query, &filters).map_err(|e| e.to_string()))
         .await
@@ -35,6 +37,7 @@ pub async fn list_cards(
     tags: Option<Vec<String>>,
     card_type: Option<String>,
     value: Option<String>,
+    tech_stack: Option<Vec<String>>,
     page: Option<u32>,
     page_size: Option<u32>,
 ) -> Result<PaginatedResult<CardSummary>, String> {
@@ -44,6 +47,7 @@ pub async fn list_cards(
         card_type,
         value,
         search: None,
+        tech_stack,
     };
     let page = page.unwrap_or(1).max(1);
     let page_size = page_size.unwrap_or(20).max(1).min(200);

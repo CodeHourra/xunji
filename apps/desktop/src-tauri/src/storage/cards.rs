@@ -72,10 +72,9 @@ fn card_from_row(row: &Row<'_>) -> rusqlite::Result<Card> {
 //
 // 被 list_cards 和 search_cards 共用。
 //
-// 标签筛选使用 AND 语义（必须同时包含所有指定标签）：
-//   SELECT card_id FROM card_tags
-//   JOIN tags ... WHERE name IN (...)
-//   GROUP BY card_id HAVING COUNT(DISTINCT name) = N
+// 标签、技术栈筛选均为 AND 语义（须同时满足）：
+// - 标签：card_tags 子查询 HAVING COUNT(DISTINCT name) = N
+// - 技术栈：cards.tech_stack 为逗号串，对每项用 instr 边界匹配（大小写不敏感）
 
 /// 根据 CardFilters 构建 WHERE 子句和参数列表
 pub(super) fn build_card_where(filters: &CardFilters) -> (String, Vec<String>) {
@@ -107,6 +106,25 @@ pub(super) fn build_card_where(filters: &CardFilters) -> (String, Vec<String>) {
                 )"
             ));
             params.extend(unique.into_iter().cloned());
+        }
+    }
+
+    // 技术栈存为逗号分隔字符串；用边界匹配避免子串误命中（如 go / golang）
+    if let Some(ref stacks) = filters.tech_stack {
+        let unique: Vec<&String> = {
+            let mut seen = std::collections::HashSet::new();
+            stacks
+                .iter()
+                .filter(|s| !s.trim().is_empty())
+                .filter(|s| seen.insert(*s))
+                .collect()
+        };
+        for s in unique {
+            conds.push(
+                "instr(',' || lower(ifnull(c.tech_stack, '')) || ',', ',' || lower(?) || ',') > 0"
+                    .to_string(),
+            );
+            params.push(s.clone());
         }
     }
 

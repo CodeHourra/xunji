@@ -85,6 +85,7 @@ export const api = {
       query: params.query,
       tags: params.tags ?? null,
       cardType: params.cardType ?? null,
+      techStack: params.techStack ?? null,
     }),
 
   /** 分页查询知识卡片列表 */
@@ -93,6 +94,7 @@ export const api = {
       tags: params.tags ?? null,
       cardType: params.cardType ?? null,
       value: params.value ?? null,
+      techStack: params.techStack ?? null,
       page: params.page ?? null,
       pageSize: params.pageSize ?? null,
     }),

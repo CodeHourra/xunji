@@ -1,0 +1,779 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>寻迹 UI 优化可视化 Demo</title>
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#ecfdf5',
+              100: '#d1fae5',
+              500: '#10b981',
+              600: '#059669',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  
+  <!-- Vue 3 -->
+  <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+  <!-- Naive UI -->
+  <script src="https://unpkg.com/naive-ui"></script>
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  
+  <style>
+    body { 
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; 
+      background-color: #f8fafc; 
+      margin: 0;
+      overflow: hidden;
+    }
+    
+    /* 毛玻璃悬浮条样式 */
+    .glass-bar {
+      background: rgba(255, 255, 255, 0.85);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(226, 232, 240, 0.8);
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+    }
+
+    [v-cloak] {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <div id="app" v-cloak class="flex flex-col h-screen w-screen overflow-hidden bg-slate-50 text-slate-800">
+    
+    <!-- 顶部菜单栏 TopBar -->
+    <header class="h-[60px] flex items-center justify-between px-4 border-b border-slate-200 bg-white shrink-0 z-50">
+      
+      <!-- 左侧：Logo + Tab 导航 -->
+      <div class="flex items-center gap-6">
+        
+        <!-- 优化 1. 品牌 Logo 区域特色强化 -->
+        <div class="flex items-center gap-3">
+          <!-- 质感 Logo 图标 -->
+          <!-- Logo 仅渐变，不叠阴影，与桌面端 TopBar 对齐 -->
+          <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-400 to-teal-600 flex items-center justify-center text-white">
+            <i data-lucide="footprints" class="w-5 h-5"></i>
+          </div>
+          <div class="flex flex-col">
+            <h1 class="font-bold text-[15px] leading-tight tracking-wide text-slate-800 flex items-center gap-1.5">
+              寻迹
+              <!-- 版本徽标 -->
+              <span class="px-1 py-0.5 rounded text-[9px] bg-emerald-100 text-emerald-700 font-bold tracking-wider">BETA</span>
+            </h1>
+            <!-- 专属 Slogan -->
+            <span class="text-[10px] text-slate-500 font-medium leading-tight tracking-wide">AI 编程知识沉淀</span>
+          </div>
+        </div>
+
+        <!-- 竖线分割 -->
+        <div class="w-px h-5 bg-slate-200 mx-1"></div>
+
+        <!-- Tab 导航 -->
+        <!-- Tab：选中态用 ring 代替 shadow-sm，与桌面端扁平风格一致 -->
+        <div class="flex items-center bg-slate-100/80 p-1 rounded-lg">
+          <button 
+            @click="activeTab = 'sessions'"
+            :class="['flex items-center gap-2 px-4 py-1.5 rounded-md text-sm font-medium transition-colors', activeTab === 'sessions' ? 'bg-white text-emerald-600 ring-1 ring-slate-200/90' : 'text-slate-500 hover:text-slate-800']">
+            <i data-lucide="messages-square" class="w-4 h-4"></i>
+            对话记录
+          </button>
+          <button 
+            @click="activeTab = 'library'"
+            :class="['flex items-center gap-2 px-4 py-1.5 rounded-md text-sm font-medium transition-colors', activeTab === 'library' ? 'bg-white text-emerald-600 ring-1 ring-slate-200/90' : 'text-slate-500 hover:text-slate-800']">
+            <i data-lucide="library" class="w-4 h-4"></i>
+            知识库
+          </button>
+        </div>
+      </div>
+
+      <!-- 右侧：同步与工具 -->
+      <div class="flex items-center gap-2">
+        <n-button size="small" secondary class="rounded-md">
+          <template #icon><i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i></template>
+          同步
+        </n-button>
+        <div class="w-px h-4 bg-slate-200 mx-1"></div>
+        <n-button quaternary circle size="small" aria-label="导出">
+          <i data-lucide="download" class="w-4 h-4 text-slate-500"></i>
+        </n-button>
+        <n-button quaternary circle size="small" aria-label="设置">
+          <i data-lucide="settings" class="w-4 h-4 text-slate-500"></i>
+        </n-button>
+        <n-button quaternary circle size="small" aria-label="主题切换">
+          <i data-lucide="sun" class="w-4 h-4 text-slate-500"></i>
+        </n-button>
+      </div>
+    </header>
+
+    <!-- 下方内容区 -->
+    <div class="flex flex-1 min-h-0 relative">
+      
+      <!-- ================= 左侧 Sidebar (对话记录模式) ================= -->
+      <aside v-if="activeTab === 'sessions'" class="w-[260px] bg-white border-r border-slate-200 flex flex-col shrink-0">
+        
+        <!-- 全部对话与整理按钮 -->
+        <div class="p-3 pb-2 space-y-2 border-b border-slate-100">
+          <div class="flex items-center gap-2 px-2.5 py-1.5 rounded-md bg-emerald-50 text-emerald-700 cursor-pointer text-sm font-medium transition-colors">
+            <i data-lucide="messages-square" class="w-4 h-4 shrink-0"></i>
+            <span>全部对话</span>
+            <span class="ml-auto text-xs opacity-80">15</span>
+          </div>
+          <n-tooltip placement="bottom" trigger="hover">
+            <template #trigger>
+              <n-button size="small" block secondary>
+                <template #icon>
+                  <i data-lucide="list-checks" class="w-4 h-4"></i>
+                </template>
+                会话整理
+              </n-button>
+            </template>
+            点「会话整理」后勾选目录中的分组，即可批量移除（仅删除应用内记录）。
+          </n-tooltip>
+        </div>
+
+        <!-- 树状视图 (优化为三级：源 -> 主机 -> 项目) -->
+        <div class="flex-1 overflow-y-auto p-2">
+          <div class="px-2 pt-1 pb-2">
+            <div class="text-[11px] font-semibold text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-1.5">
+              <i data-lucide="folders" class="w-3.5 h-3.5"></i> 来源项目
+            </div>
+          </div>
+          <div class="space-y-1">
+            <!-- Source 1: Cursor -->
+            <div>
+              <div class="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-slate-50 cursor-pointer text-sm">
+                <i data-lucide="chevron-down" class="w-3.5 h-3.5 text-slate-400"></i>
+                <i data-lucide="mouse-pointer-click" class="w-4 h-4 text-blue-500 opacity-80"></i>
+                <span class="font-medium text-slate-700 truncate">Cursor</span>
+                <span class="ml-auto text-[10px] text-slate-400 font-mono">12</span>
+              </div>
+              
+              <!-- 主机: 本地 -->
+              <div class="pl-5 space-y-0.5 mt-0.5">
+                <div class="flex items-center gap-2 px-2 py-1 rounded hover:bg-slate-50 cursor-pointer text-[13px]">
+                  <i data-lucide="chevron-down" class="w-3.5 h-3.5 text-slate-400"></i>
+                  <i data-lucide="server" class="w-3.5 h-3.5 text-slate-400"></i>
+                  <span class="text-slate-600 truncate">本地</span>
+                  <span class="ml-auto text-[10px] text-slate-400 font-mono">12</span>
+                </div>
+                
+                <!-- 项目: 子节点 -->
+                <div class="pl-6 space-y-0.5 mt-0.5">
+                  <div class="flex items-center gap-2 px-2 py-1.5 rounded bg-slate-100 text-slate-800 cursor-pointer text-sm">
+                    <i data-lucide="corner-down-right" class="w-3 h-3 text-slate-300"></i>
+                    <i data-lucide="folder" class="w-4 h-4 text-emerald-500"></i>
+                    <span class="font-medium truncate">xunji-desktop</span>
+                    <span class="ml-auto text-[10px] text-slate-500 font-mono">5</span>
+                  </div>
+                  <div class="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-slate-50 cursor-pointer text-sm">
+                    <i data-lucide="corner-down-right" class="w-3 h-3 text-slate-300"></i>
+                    <i data-lucide="folder" class="w-4 h-4 text-slate-400"></i>
+                    <span class="text-slate-600 truncate">another-project</span>
+                    <span class="ml-auto text-[10px] text-slate-400 font-mono">7</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Source 2: Claude Code -->
+            <div class="mt-2">
+              <div class="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-slate-50 cursor-pointer text-sm">
+                <i data-lucide="chevron-right" class="w-3.5 h-3.5 text-slate-400"></i>
+                <i data-lucide="terminal" class="w-4 h-4 text-orange-500 opacity-80"></i>
+                <span class="font-medium text-slate-700 truncate">Claude Code</span>
+                <span class="ml-auto text-[10px] text-slate-400 font-mono">3</span>
+              </div>
+            </div>
+            
+            <!-- Source 3: CodeBuddy -->
+            <div class="mt-2">
+              <div class="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-slate-50 cursor-pointer text-sm">
+                <i data-lucide="chevron-right" class="w-3.5 h-3.5 text-slate-400"></i>
+                <i data-lucide="code" class="w-4 h-4 text-purple-500 opacity-80"></i>
+                <span class="font-medium text-slate-700 truncate">CodeBuddy</span>
+                <span class="ml-auto text-[10px] text-slate-400 font-mono">0</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      <!-- ================= 左侧 Sidebar (知识库模式) ================= -->
+      <aside v-if="activeTab === 'library'" class="w-[260px] bg-white border-r border-slate-200 flex flex-col shrink-0">
+        <div class="flex-1 overflow-y-auto p-4 space-y-6">
+          
+          <!-- 类型 -->
+          <div>
+            <div class="text-[11px] font-semibold text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-1.5">
+              <i data-lucide="layout-grid" class="w-3.5 h-3.5"></i> 类型
+            </div>
+            <div class="flex flex-wrap gap-2">
+              <span class="px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200 cursor-pointer transition-colors">全部 <span class="opacity-60 ml-0.5 text-[10px]">10</span></span>
+              <span class="px-2.5 py-1 rounded-full text-xs text-slate-600 border border-slate-200 hover:bg-slate-50 cursor-pointer transition-colors">实现 <span class="opacity-60 ml-0.5 text-[10px]">6</span></span>
+              <span class="px-2.5 py-1 rounded-full text-xs text-slate-600 border border-slate-200 hover:bg-slate-50 cursor-pointer transition-colors">调试 <span class="opacity-60 ml-0.5 text-[10px]">2</span></span>
+              <span class="px-2.5 py-1 rounded-full text-xs text-slate-600 border border-slate-200 hover:bg-slate-50 cursor-pointer transition-colors">调研 <span class="opacity-60 ml-0.5 text-[10px]">2</span></span>
+            </div>
+          </div>
+
+          <div class="h-px bg-slate-100"></div>
+
+          <!-- 标签 -->
+          <div>
+            <div class="text-[11px] font-semibold text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-1.5">
+              <i data-lucide="tags" class="w-3.5 h-3.5"></i> 标签
+            </div>
+            <div class="flex flex-wrap gap-1.5">
+              <span class="px-2.5 py-1 rounded-full text-xs text-slate-600 border border-slate-200 hover:bg-slate-50 cursor-pointer">Tauri <span class="opacity-50 ml-0.5 text-[10px]">6</span></span>
+              <span class="px-2.5 py-1 rounded-full text-xs text-slate-600 border border-slate-200 hover:bg-slate-50 cursor-pointer">Rust <span class="opacity-50 ml-0.5 text-[10px]">4</span></span>
+              <span class="px-2.5 py-1 rounded-full text-xs text-slate-600 border border-slate-200 hover:bg-slate-50 cursor-pointer">SQLite <span class="opacity-50 ml-0.5 text-[10px]">3</span></span>
+              <span class="px-2.5 py-1 rounded-full text-xs text-slate-600 border border-slate-200 hover:bg-slate-50 cursor-pointer">AI工具 <span class="opacity-50 ml-0.5 text-[10px]">2</span></span>
+              <span class="px-2.5 py-1 rounded-full text-xs text-slate-600 border border-slate-200 hover:bg-slate-50 cursor-pointer">CRUD <span class="opacity-50 ml-0.5 text-[10px]">2</span></span>
+              <span class="px-2.5 py-1 rounded-full text-xs text-slate-600 border border-slate-200 hover:bg-slate-50 cursor-pointer">Vue3 <span class="opacity-50 ml-0.5 text-[10px]">2</span></span>
+            </div>
+          </div>
+
+          <div class="h-px bg-slate-100"></div>
+
+          <!-- 技术栈 -->
+          <div>
+            <div class="text-[11px] font-semibold text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-1.5">
+              <i data-lucide="layers" class="w-3.5 h-3.5"></i> 技术栈
+            </div>
+            <div class="flex flex-wrap gap-1.5">
+              <span class="px-2.5 py-1 rounded-full text-xs font-medium text-blue-700 bg-blue-50 cursor-pointer">Tauri <span class="opacity-60 ml-0.5 text-[10px]">7</span></span>
+              <span class="px-2.5 py-1 rounded-full text-xs font-medium text-blue-700 bg-blue-50 cursor-pointer">Rust <span class="opacity-60 ml-0.5 text-[10px]">6</span></span>
+              <span class="px-2.5 py-1 rounded-full text-xs font-medium text-blue-700 bg-blue-50 cursor-pointer">SQLite <span class="opacity-60 ml-0.5 text-[10px]">5</span></span>
+              <span class="px-2.5 py-1 rounded-full text-xs font-medium text-blue-700 bg-blue-50 cursor-pointer">TypeScript <span class="opacity-60 ml-0.5 text-[10px]">3</span></span>
+            </div>
+          </div>
+
+        </div>
+      </aside>
+
+      <!-- ================= 右侧主体内容 (共用容器) ================= -->
+      <main class="flex-1 flex flex-col relative min-w-0 bg-[#fafafa]">
+        <div class="flex-1 overflow-y-auto p-6 lg:p-8 w-full relative">
+          
+          <!-- ========== 对话记录视图 ========== -->
+          <div v-if="activeTab === 'sessions'">
+            <!-- 顶部工具栏精简 -->
+            <div class="mb-8 flex flex-col gap-4">
+              <!-- 搜索行 -->
+              <div class="flex items-center gap-3">
+                <n-input
+                  v-model:value="searchQuery"
+                  placeholder="搜索知识笔记（标题 / 摘要 / 正文全文）..."
+                  clearable
+                  size="large"
+                  class="flex-1 rounded-lg"
+                  style="--n-box-shadow: none;"
+                >
+                  <template #prefix>
+                    <i data-lucide="search" class="w-4 h-4 text-slate-400 mr-1"></i>
+                  </template>
+                </n-input>
+                
+                <n-button size="large" secondary class="rounded-lg px-4 bg-white border border-slate-200">
+                  <template #icon>
+                    <i data-lucide="rotate-ccw" class="w-4 h-4 text-slate-500"></i>
+                  </template>
+                  <span class="text-slate-600">刷新</span>
+                </n-button>
+              </div>
+
+              <!-- 分段选择器和收纳提示文字 -->
+              <div class="flex items-center justify-between">
+                <!-- 紧凑的分段选择器 Segmented Control -->
+                <div class="bg-slate-200/70 p-1 rounded-lg inline-flex">
+                  <button 
+                    @click="filterStatus = 'all'"
+                    :class="['px-5 py-1.5 rounded-md text-sm font-medium transition-colors duration-200', filterStatus === 'all' ? 'bg-white text-slate-800 ring-1 ring-slate-200/90' : 'text-slate-500 hover:text-slate-800']"
+                  >全部会话</button>
+                  <button 
+                    @click="filterStatus = 'pending'"
+                    :class="['px-5 py-1.5 rounded-md text-sm font-medium transition-colors duration-200 flex items-center gap-1.5', filterStatus === 'pending' ? 'bg-white text-amber-600 ring-1 ring-slate-200/90' : 'text-slate-500 hover:text-slate-800']"
+                  >
+                    待分析 <span :class="['py-0.5 px-1.5 rounded-full text-[10px] leading-none', filterStatus === 'pending' ? 'bg-amber-100 text-amber-700' : 'bg-slate-300 text-slate-600']">1</span>
+                  </button>
+                  <button 
+                    @click="filterStatus = 'analyzed'"
+                    :class="['px-5 py-1.5 rounded-md text-sm font-medium transition-colors duration-200', filterStatus === 'analyzed' ? 'bg-white text-emerald-600 ring-1 ring-slate-200/90' : 'text-slate-500 hover:text-slate-800']"
+                  >已分析</button>
+                </div>
+
+                <!-- 冗余提示文字使用 Tooltip 收纳 -->
+                <div class="flex items-center gap-2 text-sm text-slate-500">
+                  <span>共 <strong class="text-slate-800 font-semibold mx-0.5">3</strong> 条记录</span>
+                  <n-tooltip trigger="hover" placement="top-end">
+                    <template #trigger>
+                      <i data-lucide="info" class="w-4 h-4 text-slate-400 cursor-help hover:text-emerald-500 transition-colors focus:outline-none"></i>
+                    </template>
+                    搜索对象为已入库的知识卡片（FTS），不包含未提炼的会话标题。
+                  </n-tooltip>
+                </div>
+              </div>
+            </div>
+
+            <!-- 批量操作入口 -->
+            <div class="flex items-center justify-between mb-4 mt-2">
+              <div class="text-[15px] font-semibold text-slate-800">会话列表</div>
+              <n-button 
+                v-if="!batchMode" 
+                size="small" 
+                secondary
+                class="rounded-md"
+                @click="batchMode = true"
+              >
+                <template #icon>
+                  <i data-lucide="list-checks" class="w-3.5 h-3.5"></i>
+                </template>
+                批量操作
+              </n-button>
+            </div>
+
+            <!-- 卡片列表 -->
+            <div class="space-y-4 pb-32">
+              
+              <!-- 卡片 1: 待分析 (可选) -->
+              <div 
+                class="group relative rounded-2xl border border-slate-200/80 bg-white transition-all duration-300 cursor-pointer overflow-hidden flex"
+                :class="[batchMode && selected.includes(1) ? 'ring-2 ring-emerald-500 border-transparent bg-emerald-50/40' : 'hover:border-emerald-300']"
+                @click="batchMode ? toggleSelect(1) : null"
+              >
+                <!-- 批量选择 Checkbox -->
+                <div v-if="batchMode" class="pl-5 pt-5 shrink-0" @click.stop>
+                  <n-checkbox :checked="selected.includes(1)" @update:checked="toggleSelect(1)" size="large"></n-checkbox>
+                </div>
+                
+                <div class="flex-1 p-5 flex flex-col gap-3.5">
+                  <!-- 上层：核心视线区 -->
+                  <div class="flex items-start justify-between gap-4">
+                    <div class="space-y-2 flex-1">
+                      <!-- 状态与来源 -->
+                      <div class="flex items-center gap-2">
+                        <n-tag size="small" type="warning" :bordered="false" class="font-medium rounded bg-amber-50 text-amber-600">待分析</n-tag>
+                        <span class="text-[11px] text-slate-400 flex items-center gap-1 font-mono bg-slate-50 px-1.5 py-0.5 rounded border border-slate-100">
+                          <i data-lucide="mouse-pointer-click" class="w-3 h-3"></i> cursor
+                        </span>
+                      </div>
+                      <!-- 标题 -->
+                      <h3 class="text-base font-semibold text-slate-800 leading-relaxed line-clamp-2 pr-4">
+                        帮我优化一下当前的首页 UI，主要问题是信息密度过高，层级不清晰，操作按钮视觉压迫感太强
+                      </h3>
+                    </div>
+                    
+                    <!-- 弱化的操作按钮 (Hover 出现) -->
+                    <div class="opacity-0 group-hover:opacity-100 transition-opacity duration-200 shrink-0" v-if="!batchMode" @click.stop>
+                      <n-button secondary type="primary" size="small" class="rounded-lg">
+                        <template #icon><i data-lucide="sparkles" class="w-4 h-4"></i></template>
+                        开始分析
+                      </n-button>
+                    </div>
+                  </div>
+
+                  <!-- 下层：辅助元数据 -->
+                  <div class="flex flex-wrap items-center gap-x-5 gap-y-2 text-[12px] text-slate-500 pt-3.5 border-t border-slate-100">
+                    <span class="flex items-center gap-1.5 font-medium text-slate-700 bg-slate-100/50 px-2 py-1 rounded-md">
+                      <i data-lucide="folder" class="w-3.5 h-3.5 text-slate-400"></i> xunji-desktop
+                    </span>
+                    <span class="flex items-center gap-1.5">
+                      <i data-lucide="clock" class="w-3.5 h-3.5 text-slate-400"></i> 10 分钟前
+                    </span>
+                    <span class="flex items-center gap-1.5">
+                      <i data-lucide="message-circle" class="w-3.5 h-3.5 text-slate-400"></i> 12 条对话
+                    </span>
+                    <span class="flex items-center gap-1.5">
+                      <i data-lucide="hard-drive" class="w-3.5 h-3.5 text-slate-400"></i> 45.2 KB
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 卡片 2: 已分析 (高价值) -->
+              <div class="group relative rounded-2xl border border-slate-200/80 bg-white hover:border-emerald-300 transition-all duration-300 cursor-pointer overflow-hidden flex" :class="[batchMode ? 'opacity-50 cursor-not-allowed' : '']">
+                <div class="absolute left-0 top-3 bottom-3 w-[4px] rounded-r-full bg-emerald-500 z-10 pointer-events-none"></div>
+                <div class="flex-1 p-5 pl-6 flex flex-col gap-3.5">
+                  <div class="flex items-start justify-between gap-4">
+                    <div class="space-y-2.5 flex-1">
+                      <div class="flex items-center gap-2">
+                        <n-tag size="small" type="success" :bordered="false" class="font-medium rounded bg-emerald-50 text-emerald-600 border border-emerald-100">高价值</n-tag>
+                        <n-tag size="small" type="info" :bordered="false" class="rounded">架构设计</n-tag>
+                      </div>
+                      <div>
+                        <h3 class="text-base font-semibold text-slate-800 leading-relaxed pr-4">
+                          Tauri + Vue3 跨端桌面应用的数据持久化方案与最佳实践
+                        </h3>
+                        <p class="text-[13px] text-slate-500 line-clamp-1 mt-1.5">
+                          讨论了如何使用 SQLite 配合 Tauri API 实现本地无缝的数据存储，并解决了并发写入的锁冲突问题。
+                        </p>
+                      </div>
+                      <div class="flex gap-2 pt-1">
+                        <span class="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 border border-slate-200">sqlite</span>
+                        <span class="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 border border-slate-200">tauri</span>
+                        <span class="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 border border-slate-200">rust</span>
+                      </div>
+                    </div>
+                    <div class="opacity-0 group-hover:opacity-100 transition-opacity duration-200 shrink-0" v-if="!batchMode" @click.stop>
+                      <n-button secondary size="small" class="rounded-lg">
+                        <template #icon><i data-lucide="book-open" class="w-4 h-4"></i></template>
+                        查看笔记
+                      </n-button>
+                    </div>
+                  </div>
+                  <div class="flex flex-wrap items-center gap-x-5 gap-y-2 text-[12px] text-slate-500 pt-3.5 border-t border-slate-100">
+                    <span class="flex items-center gap-1.5 font-medium text-slate-700 bg-slate-100/50 px-2 py-1 rounded-md">
+                      <i data-lucide="folder" class="w-3.5 h-3.5 text-slate-400"></i> xunji-desktop
+                    </span>
+                    <span class="flex items-center gap-1.5">
+                      <i data-lucide="clock" class="w-3.5 h-3.5 text-slate-400"></i> 2 小时前
+                    </span>
+                    <span class="flex items-center gap-1.5">
+                      <i data-lucide="message-circle" class="w-3.5 h-3.5 text-slate-400"></i> 34 条对话
+                    </span>
+                    <span class="flex items-center gap-1.5 text-slate-400 font-mono bg-slate-50 px-1.5 py-0.5 rounded border border-slate-100">
+                      <i data-lucide="terminal" class="w-3 h-3"></i> claude-code
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 卡片 3: 已分析 (无价值) -->
+              <div class="group relative rounded-2xl border border-slate-200/50 bg-slate-50/80 transition-all duration-300 overflow-hidden flex opacity-85 hover:opacity-100" :class="[batchMode ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer hover:border-slate-300']">
+                <div class="flex-1 p-5 flex flex-col gap-3">
+                  <div class="flex items-start justify-between gap-4">
+                    <div class="space-y-2 flex-1">
+                      <div class="flex items-center gap-2">
+                        <span class="text-[11px] font-medium px-2 py-0.5 rounded border border-slate-200 text-slate-400 bg-white">⚠ 无价值</span>
+                      </div>
+                      <div>
+                        <h3 class="text-[15px] font-medium text-slate-600 line-clamp-1 italic pr-4">
+                          npm install error: ERESOLVE unable to resolve dependency tree
+                        </h3>
+                        <p class="text-[12px] text-slate-400 line-clamp-1 italic mt-1">暂无摘要，纯报错排查</p>
+                      </div>
+                    </div>
+                    <div class="opacity-0 group-hover:opacity-100 transition-opacity duration-200 shrink-0" v-if="!batchMode" @click.stop>
+                      <n-button text size="small" class="text-slate-500 hover:text-slate-700">
+                        <template #icon><i data-lucide="messages-square" class="w-4 h-4"></i></template>
+                        看对话
+                      </n-button>
+                    </div>
+                  </div>
+                  <div class="flex flex-wrap items-center gap-x-5 gap-y-2 text-[12px] text-slate-400 pt-3 border-t border-slate-200/60">
+                    <span class="flex items-center gap-1.5">
+                      <i data-lucide="folder" class="w-3.5 h-3.5"></i> xunji-desktop
+                    </span>
+                    <span class="flex items-center gap-1.5">
+                      <i data-lucide="clock" class="w-3.5 h-3.5"></i> 昨天 14:30
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+          </div>
+
+          <!-- ========== 知识库视图 (重新设计，与会话记录风格对齐) ========== -->
+          <div v-if="activeTab === 'library'">
+            
+            <!-- 顶部工具栏: 标题与操作并排 -->
+            <div class="flex items-center justify-between mb-6">
+              <div>
+                <h2 class="text-xl font-bold text-slate-800">知识库</h2>
+                <div class="text-xs text-slate-500 mt-1">共 <strong class="text-slate-700">10</strong> 条记录 · 当前{{ libraryView === 'list' ? '列表' : '卡片' }}视图</div>
+              </div>
+              
+              <div class="flex items-center gap-3">
+                <!-- 全选与清除选择整合为一个按钮 -->
+                <n-button 
+                  v-if="selected.length > 0"
+                  text 
+                  class="px-3 py-1.5 text-slate-500 hover:text-slate-700 text-sm transition-colors rounded hover:bg-slate-100" 
+                  @click="selected = []"
+                >
+                  清除选择 ({{ selected.length }})
+                </n-button>
+                <n-button 
+                  v-else
+                  text 
+                  class="px-3 py-1.5 text-slate-600 hover:text-slate-800 text-sm transition-colors rounded hover:bg-slate-100" 
+                  @click="toggleSelectAll(true)"
+                >
+                  全选当页
+                </n-button>
+                
+                <n-button secondary size="small" class="rounded-md" :disabled="selected.length === 0">
+                  <template #icon><i data-lucide="download" class="w-3.5 h-3.5"></i></template>
+                  导出所选
+                </n-button>
+                <n-button type="primary" size="small" class="rounded-md">
+                  <template #icon><i data-lucide="archive" class="w-3.5 h-3.5"></i></template>
+                  导出全部笔记
+                </n-button>
+
+                <div class="w-px h-4 bg-slate-200 mx-1"></div>
+
+                <!-- 视图切换 -->
+                <div class="bg-slate-200/70 p-1 rounded-lg inline-flex">
+                  <button @click="libraryView = 'list'" :class="['px-4 py-1.5 rounded-md text-sm font-medium transition-colors duration-200 flex items-center gap-1.5', libraryView === 'list' ? 'bg-white text-slate-800 ring-1 ring-slate-200/90' : 'text-slate-500 hover:text-slate-800']">
+                    <i data-lucide="list" class="w-3.5 h-3.5"></i> 列表
+                  </button>
+                  <button @click="libraryView = 'card'" :class="['px-4 py-1.5 rounded-md text-sm font-medium transition-colors duration-200 flex items-center gap-1.5', libraryView === 'card' ? 'bg-white text-slate-800 ring-1 ring-slate-200/90' : 'text-slate-500 hover:text-slate-800']">
+                    <i data-lucide="layout-grid" class="w-3.5 h-3.5"></i> 卡片
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- 卡片列表 (卡片视图) -->
+            <div v-show="libraryView === 'card'" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 pb-32">
+              <div v-for="item in knowledgeList" :key="item.id"
+                   class="group relative rounded-2xl border bg-white transition-all duration-300 cursor-pointer overflow-hidden flex flex-col"
+                   :class="[selected.includes(item.id) ? 'ring-2 ring-emerald-500 border-transparent bg-emerald-50/20' : 'border-slate-200/80 hover:border-emerald-300', item.isLowValue ? 'opacity-90 hover:opacity-100' : '']"
+                   @click="toggleSelect(item.id)">
+                <div class="p-5 flex-1 flex flex-col gap-3">
+                  <div class="flex items-start justify-between">
+                    <div class="flex items-center gap-2 flex-wrap">
+                      <n-tag v-for="tag in item.tags" :key="tag.label" size="small" :type="tag.type" :bordered="false" class="font-medium rounded" :class="tag.class">{{ tag.label }}</n-tag>
+                    </div>
+                    <div class="shrink-0" @click.stop>
+                      <n-checkbox :checked="selected.includes(item.id)" @update:checked="toggleSelect(item.id)" size="small"></n-checkbox>
+                    </div>
+                  </div>
+                  
+                  <div class="flex-1">
+                    <h3 class="text-base font-semibold text-slate-800 leading-snug group-hover:text-emerald-700 transition-colors">
+                      {{ item.title }}
+                    </h3>
+                    <p class="text-[13px] text-slate-500 line-clamp-3 mt-2 leading-relaxed" :class="{ 'italic': item.isLowValue }">
+                      {{ item.summary }}
+                    </p>
+                  </div>
+                </div>
+
+                <div class="px-5 py-3.5 bg-slate-50/50 border-t border-slate-100 flex flex-col gap-2.5">
+                  <div class="flex items-center justify-between text-[12px]">
+                    <span class="flex items-center gap-1.5 font-medium text-slate-700 bg-white px-2 py-0.5 rounded border border-slate-200">
+                      <i data-lucide="folder" class="w-3.5 h-3.5 text-slate-400"></i> {{ item.project }}
+                    </span>
+                    <span class="flex items-center gap-1.5 text-slate-400 font-mono bg-white px-1.5 py-0.5 rounded border border-slate-200">
+                      <i :data-lucide="item.agentIcon" class="w-3 h-3"></i> {{ item.agent }}
+                    </span>
+                  </div>
+                  <div class="flex items-center justify-between text-[11px] text-slate-400 mt-1">
+                    <span class="flex items-center gap-1.5"><i data-lucide="clock" class="w-3 h-3"></i> {{ item.time }}</span>
+                    <span class="opacity-0 group-hover:opacity-100 transition-opacity font-medium text-emerald-600 flex items-center gap-1">
+                      阅读笔记 <i data-lucide="arrow-right" class="w-3 h-3"></i>
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 卡片列表 (列表视图) -->
+            <div v-show="libraryView === 'list'" class="space-y-4 pb-32">
+              <div v-for="item in knowledgeList" :key="'list-'+item.id"
+                   class="group relative rounded-xl border bg-white shadow-sm hover:shadow-md transition-all duration-300 cursor-pointer overflow-hidden flex items-center"
+                   :class="[selected.includes(item.id) ? 'ring-2 ring-emerald-500 border-transparent bg-emerald-50/20' : 'border-slate-200/80 hover:border-emerald-300', item.isLowValue ? 'opacity-90 hover:opacity-100' : '']"
+                   @click="toggleSelect(item.id)">
+                <div class="pl-4 shrink-0" @click.stop>
+                  <n-checkbox :checked="selected.includes(item.id)" @update:checked="toggleSelect(item.id)" size="small"></n-checkbox>
+                </div>
+                  
+                <div class="flex-1 p-4 flex items-center gap-4">
+                  <div class="flex-1 min-w-0">
+                    <div class="flex items-center gap-2 mb-1">
+                      <n-tag v-for="tag in item.tags" :key="tag.label" size="small" :type="tag.type" :bordered="false" class="font-medium rounded" :class="tag.class">{{ tag.label }}</n-tag>
+                      <h3 class="text-[15px] font-semibold text-slate-800 truncate transition-colors" :class="item.isLowValue ? 'group-hover:text-slate-900 font-medium' : 'group-hover:text-emerald-700'">
+                        {{ item.title }}
+                      </h3>
+                    </div>
+                    <p class="text-[13px] text-slate-500 truncate" :class="{ 'italic': item.isLowValue }">
+                      {{ item.summary }}
+                    </p>
+                  </div>
+                  
+                  <div class="flex items-center gap-4 shrink-0 text-[12px] text-slate-400">
+                    <span class="flex items-center gap-1.5 w-24">
+                      <i data-lucide="folder" class="w-3.5 h-3.5"></i> {{ item.project }}
+                    </span>
+                    <span class="flex items-center gap-1.5 w-24">
+                      <i :data-lucide="item.agentIcon" class="w-3 h-3"></i> {{ item.agent }}
+                    </span>
+                    <span class="flex items-center gap-1.5 w-32">
+                      <i data-lucide="clock" class="w-3.5 h-3.5"></i> {{ item.time }}
+                    </span>
+                  </div>
+                  
+                  <div class="opacity-0 group-hover:opacity-100 transition-opacity duration-200 shrink-0 w-24 flex justify-end">
+                    <n-button secondary size="small" class="rounded-lg shadow-sm">
+                      <template #icon><i data-lucide="book-open" class="w-4 h-4"></i></template>
+                      阅读笔记
+                    </n-button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- 优化 4. 批量操作条现代化: 引入底部悬浮操作条 (FAB) - 会话列表独有 -->
+        <transition 
+          enter-active-class="transition ease-out duration-300 transform" 
+          enter-from-class="translate-y-24 opacity-0" 
+          enter-to-class="translate-y-0 opacity-100" 
+          leave-active-class="transition ease-in duration-200 transform" 
+          leave-from-class="translate-y-0 opacity-100" 
+          leave-to-class="translate-y-24 opacity-0"
+        >
+          <div v-show="activeTab === 'sessions' && batchMode" class="absolute bottom-8 left-0 right-0 flex justify-center z-50 pointer-events-none">
+            <div class="glass-bar rounded-full p-2 pl-5 flex items-center gap-5 pointer-events-auto transition-all shadow-xl shadow-emerald-900/5">
+              <!-- 已选状态区 -->
+              <div class="flex items-center gap-3 border-r border-slate-200/80 pr-4">
+                <n-checkbox :checked="isAllSelected" @update:checked="toggleSelectAll"></n-checkbox>
+                <span class="text-sm font-semibold text-slate-700 w-[60px]">已选 <span class="text-emerald-600">{{ selected.length }}</span> 项</span>
+              </div>
+              <!-- 操作按钮区 -->
+              <div class="flex items-center gap-2">
+                <n-button type="primary" round size="large" class="px-6 shadow-md shadow-emerald-500/20" :disabled="selected.length === 0">
+                  <template #icon><i data-lucide="sparkles" class="w-4 h-4"></i></template>
+                  开始分析
+                </n-button>
+                <n-button round size="large" secondary class="px-6" @click="batchMode = false; selected = []">
+                  取消
+                </n-button>
+              </div>
+            </div>
+          </div>
+        </transition>
+        
+      </main>
+    </div>
+  </div>
+
+  <script>
+    const { createApp, ref, onMounted, nextTick, watch } = Vue;
+
+    createApp({
+      setup() {
+        const activeTab = ref('library'); // 默认展示知识库看看效果
+        const libraryView = ref('card'); // 默认卡片视图
+        const searchQuery = ref('');
+        const filterStatus = ref('all');
+        const batchMode = ref(false);
+        const selected = ref([]);
+
+        const knowledgeList = ref([
+          {
+            id: 1,
+            title: 'Rust SQLite 数据模型设计',
+            summary: '实现 Rust 数据模型对应 SQLite schema，处理 serde 序列化与轻量级摘要结构',
+            tags: [
+              { label: '实现', type: 'info', class: 'bg-slate-100 text-slate-600' },
+              { label: '高价值', type: 'success', class: 'bg-emerald-50 text-emerald-600 border-emerald-100' }
+            ],
+            project: 'xunji',
+            agent: 'cursor',
+            agentIcon: 'mouse-pointer-click',
+            time: '2026-03-21 12:16',
+            isLowValue: false
+          },
+          {
+            id: 2,
+            title: 'Rust Tauri 数据库会话管理实现',
+            summary: '在 Tauri 桌面应用中实现会话和消息的完整 CRUD 操作及分页查询',
+            tags: [
+              { label: '实现', type: 'info', class: 'bg-slate-100 text-slate-600' },
+              { label: '高价值', type: 'success', class: 'bg-emerald-50 text-emerald-600 border-emerald-100' }
+            ],
+            project: 'xunji',
+            agent: 'cursor',
+            agentIcon: 'mouse-pointer-click',
+            time: '2026-03-21 12:15',
+            isLowValue: false
+          },
+          {
+            id: 3,
+            title: 'AMP 工具使用问题排查',
+            summary: '尝试使用 AMP 工具与 codex-internal 和 gemini-internal 打招呼时遇到的连接问题',
+            tags: [
+              { label: '调试', type: 'info', class: 'bg-slate-100 text-slate-600' },
+              { label: '低价值', type: 'warning', class: 'bg-amber-50 text-amber-600 border-amber-100' }
+            ],
+            project: 'multi-agent',
+            agent: 'claude-code',
+            agentIcon: 'terminal',
+            time: '2026-03-21 12:12',
+            isLowValue: true
+          }
+        ]);
+
+        const isAllSelected = Vue.computed(() => {
+          return selected.value.length > 0 && selected.value.length >= 3; // demo 假设当页有 3 条
+        });
+
+        const toggleSelect = (id) => {
+          if (selected.value.includes(id)) {
+            selected.value = selected.value.filter(i => i !== id);
+          } else {
+            selected.value.push(id);
+          }
+        };
+
+        const toggleSelectAll = (checked) => {
+          if (checked) {
+            selected.value = [1, 2, 3]; // demo 中知识库有3条卡片
+          } else {
+            selected.value = [];
+          }
+        };
+
+        // 刷新图标
+        const updateIcons = () => {
+          nextTick(() => {
+            lucide.createIcons();
+          });
+        };
+
+        onMounted(() => {
+          updateIcons();
+        });
+
+        watch([activeTab, libraryView, batchMode, selected], () => {
+          updateIcons();
+        });
+
+        return {
+          activeTab,
+          libraryView,
+          searchQuery,
+          filterStatus,
+          batchMode,
+          selected,
+          knowledgeList,
+          isAllSelected,
+          toggleSelect,
+          toggleSelectAll
+        }
+      }
+    }).use(naive).mount('#app');
+  </script>
+</body>
+</html>

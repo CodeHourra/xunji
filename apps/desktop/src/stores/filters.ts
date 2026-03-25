@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 
 /**
  * 侧栏筛选条件
@@ -24,8 +24,21 @@ export const useFiltersStore = defineStore('filters', () => {
   // ── 知识库筛选 ──
   /** 知识类型筛选（存英文枚举键，与 `CARD_TYPE_LABELS` / getCardTypeLabel 一致） */
   const cardType = ref('')
-  /** 选中的标签列表 */
+  /** 选中的标签列表（list_cards 为 AND：笔记须同时带有所选标签） */
   const selectedTags = ref<string[]>([])
+  /** 选中的技术栈名称（与 list_tags 统计同源；AND 语义） */
+  const selectedTechStacks = ref<string[]>([])
+
+  /**
+   * 知识库侧栏 / 主区是否处于「有生效筛选」状态（重置按钮、筛选条展示等共用）。
+   * 新增知识库筛选维度时须同步：本 getter、`resetLibrary()`、`list_cards` 参数与列表页的 watch 依赖。
+   */
+  const hasLibraryFilters = computed(
+    () =>
+      !!cardType.value
+      || selectedTags.value.length > 0
+      || selectedTechStacks.value.length > 0,
+  )
 
   /** 重置对话记录筛选（点击"全部对话"时） */
   function resetSessions() {
@@ -39,6 +52,7 @@ export const useFiltersStore = defineStore('filters', () => {
   function resetLibrary() {
     cardType.value = ''
     selectedTags.value = []
+    selectedTechStacks.value = []
   }
 
   /** 全部重置 */
@@ -54,6 +68,8 @@ export const useFiltersStore = defineStore('filters', () => {
     statusFilter,
     cardType,
     selectedTags,
+    selectedTechStacks,
+    hasLibraryFilters,
     resetSessions,
     resetLibrary,
     reset,

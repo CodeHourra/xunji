@@ -61,4 +61,16 @@ body {
 .dark ::-webkit-scrollbar-thumb {
   background-color: rgba(75, 85, 99, 0.35);
 }
+
+/**
+ * 分段条内的原生 <button>：Tauri/WebKit 会套用系统按钮外观（灰底、凸起），
+ * 未选中项看起来像「实心灰块」，浅色/深色下都会破坏与 ui_demo 一致的扁平分段样式。
+ * 仅对带 .segment-pill-btn 的按钮去外观，避免影响 Naive UI 的 n-button。
+ */
+button.segment-pill-btn {
+  -webkit-appearance: none;
+  appearance: none;
+  margin: 0;
+  font: inherit;
+}
 </style>

@@ -182,12 +182,16 @@ export interface SearchCardsParams {
   query: string
   tags?: string[] | null
   cardType?: string | null
+  /** 技术栈名称列表，AND 语义，与 list_cards 一致 */
+  techStack?: string[] | null
 }
 
 export interface ListCardsParams {
   tags?: string[] | null
   cardType?: string | null
   value?: string | null
+  /** 技术栈名称列表，AND 语义（卡片 tech_stack 字段需同时包含所选项） */
+  techStack?: string[] | null
   page?: number
   pageSize?: number
 }
