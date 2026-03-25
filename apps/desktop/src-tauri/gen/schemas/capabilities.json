@@ -1,1 +1,1 @@
-{"default":{"identifier":"default","description":"主窗口默认 IPC 能力（含 Tauri core 默认集）","local":true,"windows":["*"],"permissions":["core:default","dialog:allow-open","dialog:allow-save"]}}
+{"default":{"identifier":"default","description":"主窗口默认 IPC 能力（含 Tauri core 默认集）","local":true,"windows":["*"],"permissions":["core:default","dialog:allow-open","dialog:allow-save","updater:default","process:default"]}}

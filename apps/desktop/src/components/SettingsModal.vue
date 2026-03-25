@@ -18,7 +18,11 @@ import {
   NInput, NInputNumber, NSelect, NSwitch, NButton,
   NSpace, NAlert, NDivider, NSpin, NTag,
   NDescriptions, NDescriptionsItem,
+  useDialog,
+  useMessage,
 } from 'naive-ui'
+import { check } from '@tauri-apps/plugin-updater'
+import { relaunch } from '@tauri-apps/plugin-process'
 import { getIdentifier, getName, getTauriVersion, getVersion } from '@tauri-apps/api/app'
 import MarkdownRenderer from './MarkdownRenderer.vue'
 import appChangelogMd from '../data/app-changelog.md?raw'
@@ -29,6 +33,9 @@ const props = defineProps<{ show: boolean }>()
 const emit = defineEmits<{
   'update:show': [v: boolean]
 }>()
+
+const message = useMessage()
+const dialog = useDialog()
 
 // ── 状态 ────────────────────────────────────────────────────────────────────
 
@@ -57,6 +64,10 @@ const aboutMeta = ref<{
 } | null>(null)
 const aboutLoading = ref(false)
 const aboutError = ref('')
+/** 检查/下载更新进行中（避免重复点击） */
+const updateBusy = ref(false)
+/** 下载进度文案，供关于页展示 */
+const updateStatusText = ref('')
 
 // 工作副本：从后端加载后复制，保存时提交
 const workingConfig = ref<AppConfigDto | null>(null)
@@ -221,6 +232,75 @@ async function onSave() {
 
 function onClose() {
   emit('update:show', false)
+}
+
+/**
+ * 应用内更新：调用 tauri-plugin-updater（与 tauri.conf plugins.updater 一致）。
+ * 浏览器预览无 Tauri 时会抛错，提示用户在桌面端使用。
+ */
+async function onCheckUpdate() {
+  if (updateBusy.value) return
+  updateBusy.value = true
+  updateStatusText.value = ''
+  try {
+    const update = await check()
+    if (!update) {
+      message.success('当前已是最新版本')
+      return
+    }
+    const notes = update.body?.trim() ? `\n\n${update.body}` : ''
+    dialog.warning({
+      title: '发现新版本',
+      content: `最新版本：${update.version}${notes}`,
+      positiveText: '下载并安装',
+      negativeText: '稍后',
+      onPositiveClick: async () => {
+        updateBusy.value = true
+        let total = 0
+        let downloaded = 0
+        try {
+          await update.downloadAndInstall((event) => {
+            switch (event.event) {
+              case 'Started':
+                total = event.data.contentLength ?? 0
+                updateStatusText.value = '正在下载更新…'
+                break
+              case 'Progress':
+                downloaded += event.data.chunkLength
+                if (total > 0) {
+                  const pct = Math.min(100, Math.round((downloaded / total) * 100))
+                  updateStatusText.value = `正在下载 ${pct}%`
+                }
+                break
+              case 'Finished':
+                updateStatusText.value = '安装完成，即将重启…'
+                break
+            }
+          })
+          await relaunch()
+          return true
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e)
+          message.error(`更新失败：${msg}`)
+          console.error('[updater] download/install failed', e)
+          updateStatusText.value = ''
+          return false
+        } finally {
+          updateBusy.value = false
+        }
+      },
+    })
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    message.error(
+      msg.includes('Tauri') || msg.includes('not allowed')
+        ? '无法检查更新：请在寻迹桌面客户端内使用（浏览器预览不支持）。'
+        : `检查更新失败：${msg}`,
+    )
+    console.error('[updater] check failed', e)
+  } finally {
+    updateBusy.value = false
+  }
 }
 
 /** 与 n-switch 的受控值一致，避免仅「翻转」与 Naive 传入的新值不同步 */
@@ -550,6 +630,26 @@ const extraArgsStr = computed({
                   <span class="font-mono text-xs break-all">{{ aboutMeta.identifier }}</span>
                 </n-descriptions-item>
               </n-descriptions>
+
+              <n-space vertical :size="8" style="width: 100%">
+                <n-button
+                  type="primary"
+                  secondary
+                  size="small"
+                  class="settings-btn-rounded"
+                  :loading="updateBusy"
+                  :disabled="aboutLoading || !!aboutError"
+                  @click="onCheckUpdate"
+                >
+                  <span class="inline-flex items-center gap-1.5">
+                    <span class="i-lucide-download-cloud w-3.5 h-3.5" />
+                    检查更新
+                  </span>
+                </n-button>
+                <p v-if="updateStatusText" class="text-xs text-neutral-500 dark:text-neutral-400 m-0">
+                  {{ updateStatusText }}
+                </p>
+              </n-space>
 
               <!-- 更新日志：Markdown 静态内容 -->
               <n-divider class="!my-3" />

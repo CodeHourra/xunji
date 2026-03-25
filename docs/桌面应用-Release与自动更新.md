@@ -1,0 +1,68 @@
+# 桌面应用：打 tag 发版与应用内更新
+
+## 流程概览
+
+1. 在 `apps/desktop/package.json`、`apps/desktop/src-tauri/Cargo.toml`、`apps/desktop/src-tauri/tauri.conf.json` 中将 `version` 与即将推送的 tag 对齐（tag 为 `v0.1.4` 时版本号应为 `0.1.4`）。
+2. 确保 `bun run sync:changelog` 后 `apps/desktop/src/data/app-changelog.md` 已提交（与 CI 校验一致）。
+3. 推送 tag：`git tag v0.1.4 && git push origin v0.1.4`。
+4. GitHub Actions 工作流 **Release**（见 `.github/workflows/release.yml`）会为 macOS（aarch64 / x86_64）与 Windows 构建安装包，并上传 `latest.json` 与各平台签名产物。
+
+应用内「检查更新」使用 `tauri-plugin-updater`，从以下地址拉取静态清单：
+
+`https://github.com/CodeHourra/xunji/releases/latest/download/latest.json`
+
+若仓库迁移或改名，请同步修改 `tauri.conf.json` 中 `plugins.updater.endpoints`。
+
+## 签名密钥（必填）
+
+Tauri 2 的更新通道**必须**使用 minisign 密钥对；**与 Apple / Windows 代码签名证书无关**（平台证书可后续再接入 CI）。
+
+> **注意**：仓库内 `tauri.conf.json` 的 `plugins.updater.pubkey` 必须与 GitHub Secret `TAURI_SIGNING_PRIVATE_KEY` 中的私钥成对。若你尚未在 Actions 中配置私钥，请按下方步骤生成新密钥对，并用 **公钥全文** 替换配置里的 `pubkey` 字段（勿提交私钥文件）。
+
+### 1. 生成本地密钥
+
+在仓库根目录：
+
+```bash
+cd apps/desktop
+env -u CI bun x tauri signer generate --ci -p '' -w xunji.updater.key -f
+```
+
+- 私钥文件：`xunji.updater.key`（已加入根目录 `.gitignore` 模式 `*.updater.key`，勿提交）
+- 公钥文件：`xunji.updater.key.pub`
+
+### 2. 将公钥写入应用配置
+
+把 `xunji.updater.key.pub` 的**完整一行内容**粘贴到 `apps/desktop/src-tauri/tauri.conf.json` 的 `plugins.updater.pubkey` 字段。
+
+### 3. 将私钥写入 GitHub Actions Secrets
+
+在 GitHub 仓库 **Settings → Secrets and variables → Actions** 中新增：
+
+| Name | 说明 |
+|------|------|
+| `TAURI_SIGNING_PRIVATE_KEY` | 私钥文件**全文**（与 `pubkey` 成对） |
+| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | 若生成时使用了 `-p` 密码则填写，否则可留空或不建此项 |
+
+未配置 `TAURI_SIGNING_PRIVATE_KEY` 时，Release 工作流会在构建前失败并提示。
+
+### 4. 密钥轮换
+
+若私钥泄露或遗失：重新生成密钥对 → 更新 `pubkey` → 更新 Secret → **发一版新安装包**；已安装旧公钥的用户需能先收到一次带新公钥的更新（或需手动重装，视情况而定）。
+
+## 本地验证构建
+
+```bash
+cd apps/desktop
+export TAURI_SIGNING_PRIVATE_KEY="$(cat xunji.updater.key)"
+# 若有密码：export TAURI_SIGNING_PRIVATE_KEY_PASSWORD='...'
+env -u CI bun run tauri build
+```
+
+## 端到端验证（两连续 tag）
+
+1. 安装旧版本打包产物（或本地 `tauri build` 的上一版）。
+2. 合并新版本号并推送新 tag，等待 Release 工作流完成。
+3. 在旧版应用中打开 **设置 → 关于寻迹 → 检查更新**，应能发现新版本；下载安装并重启后版本号应更新。
+
+若 `latest.json` 中某平台条目不完整，Tauri 在校验清单时可能直接失败，请确保 CI 各 matrix 任务均成功上传。

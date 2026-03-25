@@ -52,11 +52,17 @@ impl SidecarManager {
         // 1) 开发模式：从 packages/sidecar/dist/ 加载
         // CARGO_MANIFEST_DIR = .../apps/desktop/src-tauri
         // parent×3: src-tauri → desktop → apps → xunji root
+        // Bun `--compile` 在 Windows 上产出 `xunji-sidecar.exe`，与 Unix 无后缀名不同
+        let dev_sidecar_name = if cfg!(target_os = "windows") {
+            "xunji-sidecar.exe"
+        } else {
+            "xunji-sidecar"
+        };
         let dev_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .parent()
             .and_then(|p| p.parent())
             .and_then(|p| p.parent())
-            .map(|p| p.join("packages/sidecar/dist/xunji-sidecar"));
+            .map(|p| p.join("packages/sidecar/dist").join(dev_sidecar_name));
 
         if let Some(ref path) = dev_path {
             if path.exists() {
@@ -65,9 +71,13 @@ impl SidecarManager {
             }
         }
 
-        // 2) 安装包内（DMG/.app、Windows/Linux 安装目录）：bundle.resources 映射到 resource 目录下的 `xunji-sidecar`
+        // 2) 安装包内：macOS/Linux 为 `xunji-sidecar`，Windows 为 `xunji-sidecar.exe`（见 tauri.windows.conf.json）
         if let Ok(dir) = resource_dir(package_info, &env) {
-            let bundled = dir.join("xunji-sidecar");
+            let bundled = if cfg!(target_os = "windows") {
+                dir.join("xunji-sidecar.exe")
+            } else {
+                dir.join("xunji-sidecar")
+            };
             if bundled.exists() {
                 log::info!("使用安装包内 sidecar: {}", bundled.display());
                 return Some(bundled);
@@ -76,7 +86,11 @@ impl SidecarManager {
 
         // 3) 全局安装位置（可选覆盖）
         if let Some(home) = dirs::home_dir() {
-            let global_path = home.join(".xunji/bin/xunji-sidecar");
+            let global_path = if cfg!(target_os = "windows") {
+                home.join(".xunji/bin/xunji-sidecar.exe")
+            } else {
+                home.join(".xunji/bin/xunji-sidecar")
+            };
             if global_path.exists() {
                 log::info!("使用全局 sidecar: {}", global_path.display());
                 return Some(global_path);
