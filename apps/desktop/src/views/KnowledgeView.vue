@@ -317,7 +317,7 @@ function onExportAll() {
 
       <n-empty v-else-if="!items.length" description="暂无知识卡片" class="py-16" />
 
-      <!-- 卡片视图 -->
+      <!-- 卡片视图；选中 ring-inset：根节点 overflow-hidden 会裁掉外向 ring，见 docs/踩坑/桌面应用-Tailwind-ring与overflow-hidden裁切.md -->
       <div
         v-else-if="viewMode === 'card'"
         class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5"
@@ -328,7 +328,7 @@ function onExportAll() {
           class="group relative rounded-2xl border bg-white dark:bg-neutral-900 transition-all duration-300 cursor-pointer overflow-hidden flex flex-col"
           :class="[
             selectedIds.has(c.id)
-              ? 'ring-2 ring-emerald-500 border-transparent bg-emerald-50/20 dark:bg-emerald-950/20'
+              ? 'ring-2 ring-inset ring-emerald-500 border-transparent bg-emerald-50/30 dark:bg-emerald-950/30'
               : 'border-slate-200/80 dark:border-neutral-700/60 hover:border-emerald-300 dark:hover:border-emerald-700',
           ]"
           @click="open(c)"
@@ -394,7 +394,7 @@ function onExportAll() {
         </div>
       </div>
 
-      <!-- 列表视图 -->
+      <!-- 列表视图；选中态同卡片：ring-inset 避免 overflow-hidden 裁切 -->
       <div v-else class="space-y-4">
         <div
           v-for="c in items"
@@ -402,7 +402,7 @@ function onExportAll() {
           class="group relative rounded-xl border bg-white dark:bg-neutral-900 transition-all duration-300 cursor-pointer overflow-hidden flex items-center"
           :class="[
             selectedIds.has(c.id)
-              ? 'ring-2 ring-emerald-500 border-transparent bg-emerald-50/20 dark:bg-emerald-950/20'
+              ? 'ring-2 ring-inset ring-emerald-500 border-transparent bg-emerald-50/30 dark:bg-emerald-950/30'
               : 'border-slate-200/80 dark:border-neutral-700/60 hover:border-emerald-300 dark:hover:border-emerald-700',
           ]"
           @click="open(c)"

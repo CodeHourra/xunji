@@ -268,7 +268,8 @@ const extraArgsStr = computed({
       aria-modal="true"
     >
       <template #header-extra>
-        <n-button quaternary circle size="small" @click="onClose">
+        <!-- 圆角矩形，与页内其它操作按钮一致 -->
+        <n-button quaternary size="small" class="settings-btn-rounded" @click="onClose">
           <span class="i-lucide-x w-4 h-4" />
         </n-button>
       </template>
@@ -282,7 +283,7 @@ const extraArgsStr = computed({
       <div v-else-if="errorMsg && !workingConfig" class="flex flex-col items-center gap-3 py-10 px-6">
         <span class="i-lucide-alert-circle w-8 h-8 text-red-400" />
         <p class="text-sm text-red-500 dark:text-red-400 text-center">{{ errorMsg }}</p>
-        <n-button size="small" @click="loadConfig">重新加载</n-button>
+        <n-button size="small" class="settings-btn-rounded" @click="loadConfig">重新加载</n-button>
       </div>
 
       <!--
@@ -301,6 +302,7 @@ const extraArgsStr = computed({
                 <div class="flex gap-2">
                   <n-button
                     size="small"
+                    class="settings-btn-rounded"
                     :type="distillerMode === 'api' ? 'primary' : 'default'"
                     @click="distillerMode = 'api'"
                   >
@@ -311,6 +313,7 @@ const extraArgsStr = computed({
                   </n-button>
                   <n-button
                     size="small"
+                    class="settings-btn-rounded"
                     :type="distillerMode === 'cli' ? 'primary' : 'default'"
                     @click="distillerMode = 'cli'"
                   >
@@ -403,6 +406,7 @@ const extraArgsStr = computed({
                         <n-button
                           size="small"
                           secondary
+                          class="settings-btn-rounded"
                           :loading="cliProbing"
                           @click="onProbeCli"
                         >
@@ -568,10 +572,11 @@ const extraArgsStr = computed({
           {{ successMsg }}
         </n-alert>
         <div class="flex justify-end gap-2">
-          <n-button size="small" @click="onClose">取消</n-button>
+          <n-button size="small" class="settings-btn-rounded" @click="onClose">取消</n-button>
           <n-button
             type="primary"
             size="small"
+            class="settings-btn-rounded"
             :loading="saving"
             :disabled="!workingConfig || saving"
             @click="onSave"
@@ -585,6 +590,15 @@ const extraArgsStr = computed({
 </template>
 
 <style scoped>
+/* Naive 默认按钮偏 pill；设置页统一为明显圆角矩形（覆盖组件内部圆角变量） */
+.settings-btn-rounded :deep(.n-button__border),
+.settings-btn-rounded :deep(.n-button__state-border) {
+  border-radius: 10px;
+}
+.settings-btn-rounded {
+  border-radius: 10px;
+}
+
 /* 关于页内嵌 Markdown：压缩标题层级，避免与上方元信息抢视觉 */
 .changelog-panel :deep(.md-body) {
   font-size: 0.8125rem;
