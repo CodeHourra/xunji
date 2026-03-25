@@ -81,14 +81,6 @@ watch(
   },
 )
 
-/** 主区域展示用：是否与侧栏共同存在知识库筛选 */
-const hasLibraryFilters = computed(
-  () =>
-    !!filters.cardType
-    || filters.selectedTags.length > 0
-    || filters.selectedTechStacks.length > 0,
-)
-
 function removeTagFilter(name: string) {
   const i = filters.selectedTags.indexOf(name)
   if (i >= 0) {
@@ -270,7 +262,7 @@ function onExportAll() {
 
     <!-- 与侧栏筛选联动：在主区域可摘除条件，无需回到侧栏 -->
     <div
-      v-if="hasLibraryFilters"
+      v-if="filters.hasLibraryFilters"
       class="shrink-0 flex flex-wrap items-center gap-2 mb-3 pb-3 border-b border-slate-100 dark:border-neutral-800"
     >
       <span class="text-[11px] text-slate-500 dark:text-neutral-400">当前筛选</span>

@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 
 /**
  * 侧栏筛选条件
@@ -28,6 +28,17 @@ export const useFiltersStore = defineStore('filters', () => {
   const selectedTags = ref<string[]>([])
   /** 选中的技术栈名称（与 list_tags 统计同源；AND 语义） */
   const selectedTechStacks = ref<string[]>([])
+
+  /**
+   * 知识库侧栏 / 主区是否处于「有生效筛选」状态（重置按钮、筛选条展示等共用）。
+   * 新增知识库筛选维度时须同步：本 getter、`resetLibrary()`、`list_cards` 参数与列表页的 watch 依赖。
+   */
+  const hasLibraryFilters = computed(
+    () =>
+      !!cardType.value
+      || selectedTags.value.length > 0
+      || selectedTechStacks.value.length > 0,
+  )
 
   /** 重置对话记录筛选（点击"全部对话"时） */
   function resetSessions() {
@@ -58,6 +69,7 @@ export const useFiltersStore = defineStore('filters', () => {
     cardType,
     selectedTags,
     selectedTechStacks,
+    hasLibraryFilters,
     resetSessions,
     resetLibrary,
     reset,

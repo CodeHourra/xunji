@@ -215,7 +215,7 @@ function openSearchHit(cardId: string, sessionId: string) {
 
 <template>
   <div class="flex flex-col h-full px-5 pt-5 mx-auto w-full relative">
-    <SessionToolbar :pending-count="unanalyzedCount" />
+    <SessionToolbar />
 
     <!-- Toast -->
     <Transition

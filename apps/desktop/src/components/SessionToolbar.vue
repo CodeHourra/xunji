@@ -4,11 +4,6 @@ import { useSessionsStore } from '../stores/sessions'
 import { useSearchStore } from '../stores/search'
 import { useFiltersStore } from '../stores/filters'
 
-defineProps<{
-  /** 待分析角标（预留，与列表统计联动时可展示） */
-  pendingCount?: number
-}>()
-
 const sessions = useSessionsStore()
 const search = useSearchStore()
 const filters = useFiltersStore()
@@ -27,8 +22,6 @@ function setStatusFilter(val: '' | 'analyzed' | 'pending') {
   sessions.page = 1
   void sessions.loadPage()
 }
-
-/** 待分析数量（从当前结果页取得近似值） */
 </script>
 
 <template>
@@ -88,14 +81,6 @@ function setStatusFilter(val: '' | 'analyzed' | 'pending') {
           @click="setStatusFilter('pending')"
         >
           待分析
-          <!-- <span
-            :class="[
-              'py-0.5 px-1.5 rounded-full text-[10px] leading-none',
-              filters.statusFilter === 'pending'
-                ? 'bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-400'
-                : 'bg-slate-200 dark:bg-neutral-600 text-slate-500 dark:text-slate-300'
-            ]"
-          >{{ props.pendingCount ?? '' }}</span> -->
         </button>
         <button
           type="button"

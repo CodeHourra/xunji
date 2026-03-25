@@ -400,14 +400,6 @@ function toggleTechStack(name: string) {
   }
 }
 
-/** 知识库：是否存在生效筛选，用于展示「重置筛选」 */
-const libraryFiltersActive = computed(
-  () =>
-    !!filters.cardType
-    || filters.selectedTags.length > 0
-    || filters.selectedTechStacks.length > 0,
-)
-
 /**
  * 知识库筛选折叠面板：默认全展开；display-directive=if 折叠时卸载内容减轻 DOM。
  * 不设置 max-height / overflow-y，仅由侧栏最外层滚动。
@@ -548,7 +540,7 @@ watch(() => ui.activeTab, (tab) => {
         <div class="p-4 pb-6 space-y-6">
           <!-- 有筛选时提供一键重置，避免类型/标签/技术栈分散清除 -->
           <div
-            v-if="libraryFiltersActive"
+            v-if="filters.hasLibraryFilters"
             class="flex items-center justify-between gap-2 rounded-lg border border-slate-200 dark:border-neutral-800 bg-slate-50/80 dark:bg-neutral-900/50 px-2.5 py-2"
           >
             <span class="text-[11px] text-slate-500 dark:text-neutral-400 leading-snug">已应用筛选</span>
