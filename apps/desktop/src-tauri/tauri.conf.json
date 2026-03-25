@@ -1,7 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/tauri-apps/tauri/dev/crates/tauri-cli/schema.json",
-  "productName": "寻迹",
-  "version": "0.1.4",
+  "productName": "XunJi",
+  "version": "0.1.5",
   "identifier": "com.xunji.app",
   "build": {
     "frontendDist": "../dist",
@@ -34,6 +34,9 @@
     ],
     "resources": {
       "../../../packages/sidecar/dist/xunji-sidecar": "xunji-sidecar"
+    },
+    "macOS": {
+      "bundleName": "寻迹"
     }
   },
   "plugins": {

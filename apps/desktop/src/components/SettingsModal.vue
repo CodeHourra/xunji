@@ -23,7 +23,7 @@ import {
 } from 'naive-ui'
 import { check } from '@tauri-apps/plugin-updater'
 import { relaunch } from '@tauri-apps/plugin-process'
-import { getIdentifier, getName, getTauriVersion, getVersion } from '@tauri-apps/api/app'
+import { getIdentifier, getTauriVersion, getVersion } from '@tauri-apps/api/app'
 import MarkdownRenderer from './MarkdownRenderer.vue'
 import appChangelogMd from '../data/app-changelog.md?raw'
 import { api } from '../lib/tauri'
@@ -36,6 +36,9 @@ const emit = defineEmits<{
 
 const message = useMessage()
 const dialog = useDialog()
+
+/** 用户可见品牌名（与窗口标题、macOS 显示名一致；GitHub Release 安装包前缀仍为 tauri.conf 的 productName「XunJi」） */
+const APP_DISPLAY_NAME = '寻迹'
 
 // ── 状态 ────────────────────────────────────────────────────────────────────
 
@@ -53,8 +56,6 @@ const cliProbeHint = ref('')
  * model 含义：均为应用元数据字符串，供用户排障与对照发行说明
  */
 const aboutMeta = ref<{
-  /** 应用显示名（productName） */
-  name: string
   /** 应用语义化版本 */
   version: string
   /** Tauri 框架版本 */
@@ -128,13 +129,12 @@ async function loadAboutMeta() {
   aboutError.value = ''
   aboutMeta.value = null
   try {
-    const [name, version, tauriVersion, identifier] = await Promise.all([
-      getName(),
+    const [version, tauriVersion, identifier] = await Promise.all([
       getVersion(),
       getTauriVersion(),
       getIdentifier(),
     ])
-    aboutMeta.value = { name, version, tauriVersion, identifier }
+    aboutMeta.value = { version, tauriVersion, identifier }
   } catch (e) {
     aboutError.value =
       e instanceof Error
@@ -618,7 +618,7 @@ const extraArgsStr = computed({
                 class="rounded-lg overflow-hidden"
               >
                 <n-descriptions-item label="应用名称">
-                  <span class="font-mono text-xs">{{ aboutMeta.name }}</span>
+                  <span class="text-xs">{{ APP_DISPLAY_NAME }}</span>
                 </n-descriptions-item>
                 <n-descriptions-item label="应用版本">
                   <span class="font-mono text-xs text-brand-600 dark:text-brand-400">{{ aboutMeta.version }}</span>

@@ -5,6 +5,15 @@
 
 ---
 
+## 0.1.5（2026-03-25）
+
+### 体验与构建
+
+- **Tauri**：`productName` 为 `XunJi`；`bundle.macOS.bundleName` 与 `Info.plist` 的 `CFBundleDisplayName` 为「寻迹」；关于页「应用名称」固定展示品牌名
+- **Release**：恢复/保持 `release.yml` 全矩阵（macOS aarch64 + x86_64、Windows）
+
+---
+
 ## 0.1.4（2026-03-25）
 
 ### 新增与优化
