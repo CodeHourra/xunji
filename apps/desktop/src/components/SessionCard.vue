@@ -150,8 +150,9 @@ function formatSize(bytes: number): string {
  * 卡片样式
  */
 const cardClass = computed(() => {
+  // 批量选中：须用 ring-inset。根节点有 overflow-hidden 时，默认 ring 画在盒外会被裁掉，看起来像「描边/底色拉不全」
   if (props.selectable && props.selected) {
-    return 'ring-2 ring-emerald-500 border-transparent bg-emerald-50/20 dark:bg-emerald-950/20'
+    return 'ring-2 ring-inset ring-emerald-500 border-transparent bg-emerald-50/30 dark:bg-emerald-950/30'
   }
   if (isLowValue.value && isAnalyzed.value) {
     return 'opacity-85 bg-slate-50/80 dark:bg-neutral-900/60 border-slate-200/80 dark:border-neutral-700/60 hover:opacity-100 hover:border-slate-300 dark:hover:border-neutral-600'
@@ -162,21 +163,32 @@ const cardClass = computed(() => {
 
 <template>
   <div
-    class="group relative rounded-2xl border transition-all duration-300 cursor-pointer overflow-hidden flex"
-    :class="[cardClass, isSelectDisabled ? 'cursor-default opacity-60' : '']"
+    class="group relative border transition-all duration-300 cursor-pointer overflow-hidden flex"
+    :class="[
+      isAnalyzed ? 'rounded-2xl' : 'rounded-xl',
+      cardClass,
+      isSelectDisabled ? 'cursor-default opacity-60' : '',
+    ]"
     @click="openSession"
   >
-    <!-- 左侧高/中价值色条 -->
+    <!-- 左侧高/中价值色条（仅已分析且高/中价值） -->
     <div
       v-if="barColor"
-      class="absolute left-0 top-3 bottom-3 w-[4px] rounded-r-full z-10 pointer-events-none"
+      class="absolute left-0 top-2.5 bottom-2.5 w-[3px] rounded-r-full z-10 pointer-events-none"
       :style="{ backgroundColor: barColor }"
     />
 
-    <div class="flex-1 p-5" :class="barColor ? 'pl-6' : ''">
+    <!-- 未分析：更小内边距与纵向间距；已分析：略收紧 -->
+    <div
+      class="flex-1 min-w-0"
+      :class="[
+        isAnalyzed ? 'p-4' : 'p-3',
+        barColor ? 'pl-[18px]' : '',
+      ]"
+    >
       <!-- 头部：标签 + 操作按钮 -->
-      <div class="flex items-start justify-between gap-4">
-        <div class="space-y-2.5 flex-1 min-w-0">
+      <div class="flex items-start justify-between" :class="isAnalyzed ? 'gap-3' : 'gap-2'">
+        <div class="flex-1 min-w-0" :class="isAnalyzed ? 'space-y-2' : 'space-y-1'">
           <!-- 状态标签行 -->
           <div class="flex items-center gap-2 flex-wrap">
             <!-- 批量模式 checkbox -->
@@ -220,30 +232,30 @@ const cardClass = computed(() => {
             </template>
 
             <template v-else>
-              <!-- 未分析：待分析 / 来源标签 -->
+              <!-- 未分析：仅状态 + 来源两行标签，无笔记类型/技术标签区 -->
               <n-tag
                 size="small"
                 :bordered="false"
                 :type="session.status === 'analyzing' ? 'info'
                      : session.status === 'error' ? 'error'
                      : 'warning'"
-                class="rounded"
+                class="rounded !text-[11px]"
               >
                 {{ session.status === 'pending'   ? '待分析'
                  : session.status === 'analyzing' ? '分析中'
                  : session.status === 'error'     ? '失败'
                  : session.status }}
               </n-tag>
-              <n-tag size="small" :bordered="false" class="rounded">
+              <n-tag size="small" :bordered="false" class="rounded !text-[11px]">
                 {{ session.sourceId }}
               </n-tag>
             </template>
           </div>
 
-          <!-- 标题 -->
+          <!-- 标题（略小字号 + 紧行高，与摘要间距收窄以提升列表密度） -->
           <div>
             <h3
-              class="text-base font-semibold leading-relaxed pr-4"
+              class="font-semibold leading-snug pr-4"
               :class="isLowValue && isAnalyzed
                 ? 'text-slate-500 dark:text-slate-400 italic'
                 : 'text-slate-800 dark:text-slate-100'"
@@ -253,7 +265,7 @@ const cardClass = computed(() => {
             <!-- 摘要 -->
             <p
               v-if="isAnalyzed && session.cardSummary"
-              class="text-[13px] line-clamp-1 mt-1.5"
+              class="text-[14px] leading-snug line-clamp-1 mt-0.5"
               :class="isLowValue
                 ? 'text-slate-400 dark:text-slate-500 italic'
                 : 'text-slate-500 dark:text-slate-400'"
@@ -262,16 +274,16 @@ const cardClass = computed(() => {
             </p>
             <p
               v-else-if="!isAnalyzed"
-              class="text-[13px] text-slate-500 dark:text-slate-400 line-clamp-1 mt-1.5"
+              class="text-[14px] leading-snug text-slate-500 dark:text-slate-400 line-clamp-1 mt-0"
             >
               {{ session.status === 'error'
                 ? (session.errorMessage || '分析失败，点击查看详情或重试。')
-                : '原始对话，点击查看内容或进行知识提炼。' }}
+                : '点击预览或提炼为笔记' }}
             </p>
           </div>
 
-          <!-- 技术标签 -->
-          <div v-if="tagList.length" class="flex gap-2 pt-1">
+          <!-- 技术标签（来自卡片提炼，仅已分析展示） -->
+          <div v-if="isAnalyzed && tagList.length" class="flex flex-wrap gap-1.5 pt-0.5">
             <span
               v-for="tag in tagList"
               :key="tag"
@@ -314,30 +326,43 @@ const cardClass = computed(() => {
         </div>
       </div>
 
-      <!-- 底部元数据行 -->
-      <div class="flex flex-wrap items-center gap-x-5 gap-y-2 text-[12px] text-slate-500 dark:text-slate-400 pt-3.5 mt-3.5 border-t border-slate-100 dark:border-neutral-800">
-        <span class="flex items-center gap-1.5 font-medium text-slate-700 dark:text-slate-300 bg-slate-100/50 dark:bg-neutral-800/50 px-2 py-1 rounded-md">
-          <span class="i-lucide-folder w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
-          {{ session.projectName || session.projectPath || '未命名项目' }}
+      <!-- 底部元数据：容器 m/p 为 0，仅靠 border-t 与主区隔开；项间距用 gap -->
+      <div
+        class="m-0 p-0 flex flex-wrap items-center border-t border-slate-100 dark:border-neutral-800 text-slate-500 dark:text-slate-400"
+        :class="
+          isAnalyzed
+            ? 'gap-x-4 gap-y-1.5 text-[12px]'
+            : 'gap-x-2.5 gap-y-1 text-[11px]'
+        "
+      >
+        <span
+          class="flex items-center gap-1 font-medium text-slate-700 dark:text-slate-300 bg-slate-100/50 dark:bg-neutral-800/50 rounded-md max-w-[min(100%,14rem)] min-w-0"
+          :class="isAnalyzed ? 'px-2 py-1' : 'px-1.5 py-0.5'"
+        >
+          <span class="i-lucide-folder shrink-0 text-slate-400 dark:text-slate-500" :class="isAnalyzed ? 'w-3.5 h-3.5' : 'w-3 h-3'" />
+          <span class="truncate">{{ session.projectName || session.projectPath || '未命名项目' }}</span>
         </span>
         <n-tooltip trigger="hover" :delay="300">
           <template #trigger>
-            <span class="flex items-center gap-1.5 cursor-default">
-              <span class="i-lucide-clock w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
+            <span class="flex items-center gap-1 cursor-default shrink-0">
+              <span class="i-lucide-clock text-slate-400 dark:text-slate-500" :class="isAnalyzed ? 'w-3.5 h-3.5' : 'w-3 h-3'" />
               {{ relativeTime(session.updatedAt) }}
             </span>
           </template>
           {{ timeTooltip }}
         </n-tooltip>
-        <span class="flex items-center gap-1.5">
-          <span class="i-lucide-message-circle w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
-          {{ session.messageCount }} 条对话
+        <span class="flex items-center gap-1 shrink-0">
+          <span class="i-lucide-message-circle text-slate-400 dark:text-slate-500" :class="isAnalyzed ? 'w-3.5 h-3.5' : 'w-3 h-3'" />
+          {{ session.messageCount }} 条
         </span>
-        <span v-if="session.rawSizeBytes" class="flex items-center gap-1.5">
-          <span class="i-lucide-hard-drive w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
+        <span v-if="session.rawSizeBytes" class="flex items-center gap-1 shrink-0">
+          <span class="i-lucide-hard-drive text-slate-400 dark:text-slate-500" :class="isAnalyzed ? 'w-3.5 h-3.5' : 'w-3 h-3'" />
           {{ formatSize(session.rawSizeBytes) }}
         </span>
-        <span class="flex items-center gap-1.5 text-slate-400 dark:text-slate-500 font-mono bg-slate-50 dark:bg-neutral-800 px-1.5 py-0.5 rounded border border-slate-100 dark:border-neutral-700">
+        <span
+          v-if="isAnalyzed"
+          class="flex items-center gap-1 text-slate-400 dark:text-slate-500 font-mono bg-slate-50 dark:bg-neutral-800 px-1.5 py-0.5 rounded border border-slate-100 dark:border-neutral-700"
+        >
           <span :class="sourceIcon" class="w-3 h-3" />
           {{ session.sourceId }}
         </span>

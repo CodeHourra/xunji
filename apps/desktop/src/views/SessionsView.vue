@@ -310,7 +310,7 @@ function openSearchHit(cardId: string, sessionId: string) {
 
       <template v-else>
         <!-- 列表标题行 -->
-        <div class="flex items-center justify-between mb-3">
+        <div class="flex items-center justify-between mb-0">
           <h2 class="text-base font-semibold text-slate-800 dark:text-slate-100">会话列表</h2>
           <n-button
             v-if="unanalyzedCount > 0 && !batchMode"
@@ -331,7 +331,7 @@ function openSearchHit(cardId: string, sessionId: string) {
         </p>
 
         <!-- 会话卡片列表 -->
-        <div class="flex-1 min-h-0 overflow-y-auto space-y-4 pb-32">
+        <div class="flex-1 min-h-0 overflow-y-auto space-y-3 pb-32">
           <SessionCard
             v-for="s in sessions.items"
             :key="s.id"

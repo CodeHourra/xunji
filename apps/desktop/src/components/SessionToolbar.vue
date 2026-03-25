@@ -32,7 +32,7 @@ function setStatusFilter(val: '' | 'analyzed' | 'pending') {
 </script>
 
 <template>
-  <div class="flex flex-col gap-4 mb-8 shrink-0">
+  <div class="flex flex-col gap-4 mb-1 shrink-0">
     <!-- 搜索行 -->
     <div class="flex items-center gap-3">
       <n-input
