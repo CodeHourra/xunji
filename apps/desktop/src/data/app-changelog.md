@@ -2,6 +2,14 @@
 
 > 面向使用者的更新说明。实现细节见 `docs/CHANGELOG.md`。
 
+## 0.1.7（2026-03-26）
+
+### 开发体验
+
+- **本地 macOS 打包**：`make macos` 在未设置环境变量时，会尝试从 `apps/desktop/xunji.updater.key` 注入 `TAURI_SIGNING_PRIVATE_KEY`（与 CI 一致；私钥文件勿提交）。详见 `docs/macOS 打包说明.md`。
+
+---
+
 ## 0.1.6（2026-03-25）
 
 ### 体验改进

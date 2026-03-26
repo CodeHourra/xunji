@@ -5,6 +5,15 @@
 
 ---
 
+## 0.1.7（2026-03-26）
+
+### 构建与文档
+
+- **Makefile**：`macos` 目标增加 `TAURI_SIGNING_PRIVATE_KEY` / `xunji.updater.key` 检查与导出
+- **docs/macOS 打包说明.md**：产物路径与命名说明
+
+---
+
 ## 0.1.6（2026-03-25）
 
 ### 体验与构建
