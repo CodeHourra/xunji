@@ -5,7 +5,7 @@
 1. 在 `apps/desktop/package.json`、`apps/desktop/src-tauri/Cargo.toml`、`apps/desktop/src-tauri/tauri.conf.json` 中将 `version` 与即将推送的 tag 对齐（tag 为 `v0.1.4` 时版本号应为 `0.1.4`）。
 2. 确保 `bun run sync:changelog` 后 `apps/desktop/src/data/app-changelog.md` 已提交（与 CI 校验一致）。
 3. 推送 tag：`git tag v0.1.4 && git push origin v0.1.4`。
-4. GitHub Actions 工作流 **Release**（见 `.github/workflows/release.yml`）会为 macOS（aarch64 / x86_64）与 Windows 构建安装包，并上传 `latest.json` 与各平台签名产物。
+4. GitHub Actions 工作流 **Release**（见 `.github/workflows/release.yml`）在 **macOS** runner 上交叉构建 **aarch64 与 x86_64**（不设 Windows 矩阵时可不上传 Windows 安装包）；需成功上传各目标产物，**`latest.json` 才会包含对应 `platforms` 键**，否则部分机型「检查更新」会失败。
 
 应用内「检查更新」使用 `tauri-plugin-updater`，从以下地址拉取静态清单：
 
@@ -58,6 +58,12 @@ export TAURI_SIGNING_PRIVATE_KEY="$(cat xunji.updater.key)"
 # 若有密码：export TAURI_SIGNING_PRIVATE_KEY_PASSWORD='...'
 env -u CI bun run tauri build
 ```
+
+## 常见问题
+
+### 检查更新失败：`darwin-x86_64` 不在 `platforms` 里
+
+仅发布 **aarch64** 包时，`latest.json` 往往只有 `darwin-aarch64`。**Intel Mac** 或 **Rosetta 下的 x86 应用** 会查找 `darwin-x86_64`，若 Release 未构建该目标，会报 *None of the fallback platforms … were found in the response*。请在 `release.yml` 的 `publish-tauri` 矩阵中保留 `x86_64-apple-darwin` 并成功上传；发新 tag 后再试「检查更新」。
 
 ## 端到端验证（两连续 tag）
 
