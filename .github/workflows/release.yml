@@ -1,6 +1,6 @@
 # 推送语义化版本 tag（如 v0.1.3）时：
 # 1) 与原先一致：在 ubuntu 上由 softprops 创建/更新 GitHub Release 并 generate_release_notes（PR 合并后再打 tag 的流程不变）。
-# 2) tauri build（当前长期仅 macOS Apple Silicon / aarch64，节省 CI），向同一 Release 上传安装包与 latest.json（供应用内 updater）。
+# 2) tauri build（macOS：aarch64 + x86_64，无 Windows，省 CI）；latest.json 需含 Intel Mac 所用 darwin-x86_64，否则检查更新会报 platforms 缺失。
 # 依赖 Secrets：TAURI_SIGNING_PRIVATE_KEY（必填）；TAURI_SIGNING_PRIVATE_KEY_PASSWORD（可选）。
 name: Release
 
@@ -34,7 +34,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  # ── 打 tag 后：构建并上传到上述 Release（矩阵见下，仅 aarch64 时可再增 x86_64 / windows）──
+  # ── 打 tag 后：构建并上传到上述 Release（双架构 macOS；不跑 Windows 以省 CI）──
   publish-tauri:
     if: github.event_name == 'push'
     needs: github-release
@@ -42,9 +42,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # 长期仅 Apple Silicon：省 runner 时间；latest.json 仅含 darwin-aarch64 等当前产物
+          # Apple Silicon：应用内更新主路径
           - platform: macos-latest
             args: --target aarch64-apple-darwin
+          # Intel Mac / Rosetta x86：与上共存于 latest.json，缺则报 darwin-x86_64 not in platforms
+          - platform: macos-latest
+            args: --target x86_64-apple-darwin
 
     runs-on: ${{ matrix.platform }}
     timeout-minutes: 45
@@ -79,11 +82,11 @@ jobs:
         if: matrix.platform != 'macos-latest'
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Install Rust stable (macOS aarch64)
+      - name: Install Rust stable (macOS aarch64 + x86_64)
         if: matrix.platform == 'macos-latest'
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-apple-darwin
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
 
       - name: Build and upload to GitHub Release
         uses: tauri-apps/tauri-action@v0
