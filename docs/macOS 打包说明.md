@@ -45,8 +45,9 @@ cd apps/desktop && bun run tauri:build
 
 | 产物 | 说明 |
 |------|------|
-| `macos/寻迹.app` | 应用包，内含 `Contents/Resources/xunji-sidecar` |
-| `dmg/寻迹_<版本>_aarch64.dmg`（或 `x86_64`） | 磁盘映像，拖入「应用程序」即可 |
+| `macos/<产品名>.app` | 应用包（`productName` 为 `XunJi` 时目录名为 `XunJi.app`；`bundle.macOS.bundleName` 仅影响展示名），内含 `Contents/Resources/xunji-sidecar` |
+| `macos/*_<版本>_<arch>.dmg` | **最终**磁盘映像在同一目录 `macos/` 下，文件名含版本与架构（如 `XunJi_0.1.6_aarch64.dmg`；部分环境会先出现带 `rw.` 前缀的临时名） |
+| `dmg/` | 仅 **create-dmg 中间资源**（如 `bundle_dmg.sh`、`.icns`），**不是**最终 `.dmg` 输出位置（Tauri 2 与旧文档路径习惯不同，易误以为「没有 dmg」） |
 
 安装 DMG 后，运行时会按顺序查找 Sidecar：
 

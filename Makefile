@@ -19,8 +19,16 @@ sidecar:
 	cd "$(REPO)/packages/sidecar" && bun run build
 
 # 一键：安装依赖并执行 Tauri 发布构建（beforeBuild 会编译 sidecar + 前端，bundle.resources 打入 sidecar）
+# createUpdaterArtifacts 需要 minisign 私钥：优先用环境变量 TAURI_SIGNING_PRIVATE_KEY，否则从 apps/desktop/xunji.updater.key 读取（勿提交该文件）
 macos: deps
-	cd "$(REPO)/apps/desktop" && env -u CI bun run tauri:build
+	cd "$(REPO)/apps/desktop" && \
+		if [ -z "$$TAURI_SIGNING_PRIVATE_KEY" ] && [ -f xunji.updater.key ]; then \
+			export TAURI_SIGNING_PRIVATE_KEY="$$(cat xunji.updater.key)"; \
+		elif [ -z "$$TAURI_SIGNING_PRIVATE_KEY" ]; then \
+			echo "错误: 未设置 TAURI_SIGNING_PRIVATE_KEY，且当前目录无 xunji.updater.key。请生成密钥或 export，见 docs/桌面应用-Release与自动更新.md" >&2; \
+			exit 1; \
+		fi; \
+		env -u CI bun run tauri:build
 
 # 一键：安装依赖并执行 Tauri 开发构建（beforeDev 会编译 sidecar + 前端）
 dev:
