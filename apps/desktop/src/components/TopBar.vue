@@ -15,6 +15,7 @@ import { useSidebarStore } from '../stores/sidebar'
 import { api } from '../lib/tauri'
 import { exportAllCardsToDir } from '../lib/cardExport'
 import SettingsModal from './SettingsModal.vue'
+import AppUpdateModal from './AppUpdateModal.vue'
 
 const ui = useUiStore()
 const sessions = useSessionsStore()
@@ -24,6 +25,8 @@ const message = useMessage()
 const dialog = useDialog()
 
 const showSettings = ref(false)
+/** 独立「软件更新」弹窗（与设置解耦） */
+const showAppUpdate = ref(false)
 
 /** 顶栏「导出」下拉：与知识库页能力对齐 */
 const exportDropdownOptions: DropdownOption[] = [
@@ -174,6 +177,15 @@ async function onSync() {
 
       <n-tooltip trigger="hover" :delay="400">
         <template #trigger>
+          <n-button quaternary circle size="small" aria-label="检查更新" @click="showAppUpdate = true">
+            <span class="i-lucide-download-cloud w-4 h-4 text-slate-500 dark:text-slate-400" />
+          </n-button>
+        </template>
+        检查更新
+      </n-tooltip>
+
+      <n-tooltip trigger="hover" :delay="400">
+        <template #trigger>
           <n-button quaternary circle size="small" @click="showSettings = true">
             <span class="i-lucide-settings w-4 h-4 text-slate-500 dark:text-slate-400" />
           </n-button>
@@ -192,5 +204,6 @@ async function onSync() {
     </div>
   </header>
 
+  <app-update-modal v-model:show="showAppUpdate" />
   <settings-modal v-model:show="showSettings" />
 </template>

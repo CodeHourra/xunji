@@ -5,6 +5,15 @@
 
 ---
 
+## 0.1.6（2026-03-25）
+
+### 体验与构建
+
+- **桌面**：`AppUpdateModal.vue`、`useAppUpdater.ts`；`TopBar` 顶栏入口；`SettingsModal` 关于页移除重复入口
+- **更新流程**：`downloadAndInstall` 回调驱动 `n-progress`；无 `contentLength` 时降级为转圈 + 已接收数据量
+
+---
+
 ## 0.1.5（2026-03-25）
 
 ### 体验与构建
